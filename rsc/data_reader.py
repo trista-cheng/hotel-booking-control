@@ -23,14 +23,14 @@ class JSONDataReader:
         """
         # FIXME a key is nonsense
         with open(
-            join(self.data_root, "agent_order_price", self.scenario["a"], f"{instance_id}.json")
+            join(self.data_root, "agent_order_price", self.scenario["agent"], f"{instance_id}.json")
         ) as f:
             agent_order_price = json.load(f)
-        with open(join(self.data_root, "agent_order_room_quantity", self.scenario["a"],
+        with open(join(self.data_root, "agent_order_room_quantity", self.scenario["agent"],
                        f"{instance_id}.json")) as f:
             agent_order_room_quantity = json.load(f)
         with open(
-            join(self.data_root, "agent_order_stay", self.scenario["a"], f"{instance_id}.json")
+            join(self.data_root, "agent_order_stay", self.scenario["agent"], f"{instance_id}.json")
         ) as f:
             agent_order_stay = json.load(f)
         time_span = list(set(
@@ -58,7 +58,7 @@ class JSONDataReader:
         ) as f:
             room_capacity = json.load(f)
         with open(
-            join(self.data_root, "upgrade_fee", self.scenario["a"], f"{instance_id}.json")
+            join(self.data_root, "upgrade_fee", self.scenario["agent"], f"{instance_id}.json")
         ) as f:
             upgrade_fee = json.load(f)
 
@@ -86,12 +86,12 @@ class JSONDataReader:
         ) as f:
             individual_room_price = json.load(f)
         with open(
-            join(self.data_root, "individual_demand_pmf", self.scenario["i"], f"{instance_id}.json")
+            join(self.data_root, "individual_demand_pmf", self.scenario["individual"], f"{instance_id}.json")
         ) as f:
             individual_demand_pmf = json.load(f)
         return individual_demand_pmf, individual_room_price
 
-
+# FIXME NOT compatible NOW
 class CSVDataReader:
     """Help yulindog hide some stuff"""
     def __init__(self, scenario: dict, data_root=DATA_ROOT) -> None:

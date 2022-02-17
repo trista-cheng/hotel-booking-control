@@ -1,3 +1,4 @@
+import json
 import seaborn as sns
 import numpy as np
 import pandas as pd
@@ -9,22 +10,11 @@ import matplotlib.font_manager as fm
 # 改style要在改font之前
 # plt.style.use('seaborn')
 
+with open("scenarios.json") as f:
+    scenarios = json.load(f)
+
 fm.fontManager.addfont('TaipeiSansTCBeta-Regular.ttf')
 mpl.rc('font', family='Taipei Sans TC Beta')
-
-TIME_SPAN_LEN = 21
-CAPACITY = np.array([200, 150, 100, 70, 30, 10])
-IND_DEMAND_MUL_SET = (0.5, 1, 2)
-STAY_MUL_SET = (1/TIME_SPAN_LEN, 1/10, 1/5, 1/2)
-# CAPACITY_MUL_SET = [[1, 1, 1, 1, 1, 1]]
-CAPACITY_MUL_SET = []
-all_capacity = CAPACITY.sum()
-for c_id, c in enumerate(CAPACITY):
-    down_mul = 1 - (c / (all_capacity - c))
-    mul = np.repeat(down_mul, len(CAPACITY))
-    mul[c_id] = 2
-    CAPACITY_MUL_SET.append(mul)
-CAPACITY_MUL_SET = np.array(CAPACITY_MUL_SET)
 
 def plot_heatmap(df, x_tick, y_tick, x_label, y_label, title, file_name):
     fig, ax = plt.subplots(figsize=(8, 14))
@@ -39,13 +29,12 @@ def plot_heatmap(df, x_tick, y_tick, x_label, y_label, title, file_name):
 
 y_tick = []
 x_tick = []
-for stay_mul in STAY_MUL_SET:
-    for capacity_mul in CAPACITY_MUL_SET:
-        y_tick.append(f"stay length: {stay_mul: .2f}, hot room: {np.argmax(capacity_mul)}")
+for agent_factor in scenarios["agent"]:
+    segs = agent_factor.split('_')
+    y_tick.append(f"stay length: {segs[2]}, hot room: {segs[-1]}")
 
-for ind_demand_mul in IND_DEMAND_MUL_SET:
-    x_tick.append(f"{ind_demand_mul}")
-
+for ind_factor in scenarios["individual"]:
+    x_tick.append(ind_factor.split("_")[-1])
 
 lack = pd.read_csv("scores.csv")
 plot_heatmap(lack, x_tick, y_tick, "Individual demand", "Factor about orders from agents", "要滿足所有訂單還需要成長幾倍的產能", "lack.png")
