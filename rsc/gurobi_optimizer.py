@@ -22,11 +22,11 @@ def solve(data_reader, instance_id):
     ]
     demand_scenario_indice = [
         (room_type, t, str(demand_id))
-        for room_id, room_type in enumerate(room_type_set)
+        for room_type in room_type_set
         for t in time_span
-        for demand_id in range(1, np.min([INDIVIDUAL_POP_SIZE[room_id], room_capacity[room_type]]) + 2)
+        for demand_id in range(1, np.min([INDIVIDUAL_POP_SIZE[int(room_type) - 1], room_capacity[room_type]]) + 2)
     ]
-
+    # FIXME scenario id range
     model = Model("hotel_booking")
     order_acceptance = model.addVars(agent_order_set, vtype=GRB.BINARY,
                                     name=f'Order acceptance')
@@ -114,18 +114,19 @@ def solve(data_reader, instance_id):
         quicksum(
             individual_room_price[room_type] *
             quicksum(
-                individual_demand_pmf[room_type][t][scenario_id]['prob'] *
-                effective_sale_for_individual[room_type, t, scenario_id]
+                individual_demand_pmf[room_type][t][str(scenario_id)]['prob'] *
+                effective_sale_for_individual[room_type, t, str(scenario_id)]
                 for t in time_span
-                for scenario_id in individual_demand_pmf[room_type][t]
-            )
+                for scenario_id in range(1, np.min([INDIVIDUAL_POP_SIZE[int(room_type) - 1], room_capacity[room_type]]) + 2)
+            ) 
             for room_type in room_type_set
         ),
         GRB.MAXIMIZE
     )
+    # FIXME scenario id range
     # model.Params.TimeLimit = float('inf')
     model.Params.TimeLimit = 20
-    model.Params.MIPGap = 0
+    # model.Params.MIPGap = 0
     model.optimize()
 
     # def acc_verbose(order_acceptance):
