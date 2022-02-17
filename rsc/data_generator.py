@@ -3,6 +3,7 @@ import xarray as xr
 
 from scipy.stats import binom, bernoulli
 
+OVERSAMPLE_RATIO = 5
 
 def check_consistant_len(attr_list: list):
     is_valid = True
@@ -45,105 +46,117 @@ class DataGenerator:
         self.individual_price = np.array(individual_price)
 
 
-    def generate_agent_order(self, avg_stay_duration: int, num_order: int,
-                             avg_num_room: np.array, padding_rate: float,
-                             capacity_multiplier: np.array,
+    def generate_agent_order(self, room_request_ratio_threshold: float, 
+                             avg_stay_duration: int, avg_num_room: np.array, 
+                             padding_rate: float, room_rate: np.array, 
                              price_mutiplier: float,
-                             upgrade_fee_multiplier: float):
-        # TODO price and upgrade fee and padding are less flexible
+                             upgrade_fee_multiplier: float, batch_size: int):
+        # TODO price and upgrade fee and padding are less flexible and variety, 
+        # static to multiplier.
 
         """
         Parameter
         ---------
+        room_request_ratio_threshold(float): The request quantity must 
+            exceed capacity multiplied by this number.
         avg_stay_duration(int): Average stay duration(regardless of room type).
-        num_order(int): Number of order.
-        avg_num_room(1D): Average quantity in orders with request to given
-        room type.
+            num_order(int): Number of order.
+        avg_num_room(1D array): average number of rooms for each type 
+            in one order.
         padding_rate([0, 1]): Proportion to expand from average value for
-        uniform distribution simultation.
+            uniform distribution simultation.
         room_rate(1D): Average probability to book given type in an order.
-        capacity_multiplier(1D): The product of stay duration, #order,
-        probability of request for given room, and #room equals this given
-        constant to mutiplied by capacity and time length.
         price_mutiplier([0, 1]): The price for an agent order is calculated by
-        the individual price and multiplier
+            the individual price and multiplier
         upgrade_fee_mutiplier([0, 1]): Same as price_multiplier.
+        batch_size: determine the number orders generated iteratively.
         """
 
-        # 1D array
-        room_rate = (
-            (capacity_multiplier * self.capacity * self.time_span_len) /
-            (num_order * avg_stay_duration * avg_num_room)
-        )
-        if (room_rate > 1).any():
-            room_rate = room_rate / room_rate.sum()
-        # FIXME 2 is another magic number
-        room_rate *= 2
-        room_rate[room_rate > 1] = 1
+        agent_order_stay_pool = np.empty((0, self.time_span_len))
+        agent_order_room_quantity_pool = np.empty((0, self.num_room_type))
+        agent_order_price_pool = np.empty((0))
+        while True:
+            ## stay duration
+            # start time
+            start_period = np.random.choice(self.time_span, batch_size, 
+                                            replace=True)
+            # duration length
+            stay_ub = int(np.ceil((1 + padding_rate) * avg_stay_duration))
+            stay_lb = int(np.floor((1 - padding_rate) * avg_stay_duration))
+            stay_lb = 1 if stay_lb < 1 else stay_lb
+            rng = np.random.default_rng()
+            stay_len = rng.integers(low=stay_lb, high=stay_ub, endpoint=True,
+                                    size=batch_size)
+            agent_order_stay = np.zeros(
+                (batch_size, self.time_span_len + stay_ub),
+                dtype=np.int8
+            )
+            for order_id in range(batch_size):
+                agent_order_stay[
+                    order_id,
+                    start_period[order_id]:
+                    start_period[order_id] + stay_len[order_id]
+                ] = 1
+            agent_order_stay = agent_order_stay[:,:self.time_span_len]
+            stay_len = agent_order_stay.sum(axis=1)
+            if (stay_len <= 0).any():
+                print("Nonsense order appear!")
 
-        ## stay duration
-        # start time
-        start_period = np.random.choice(self.time_span, num_order, replace=True)
-        # duration length
-        stay_ub = int(np.ceil((1 + padding_rate) * avg_stay_duration))
-        stay_lb = int(np.floor((1 - padding_rate) * avg_stay_duration))
-        stay_lb = 0 if stay_lb < 0 else stay_lb
-        rng = np.random.default_rng()
-        stay_len = rng.integers(low=stay_lb, high=stay_ub, endpoint=True,
-                            size=num_order)
-        agent_order_stay = np.zeros((num_order, self.time_span_len + stay_ub),
-                                    dtype=np.int8)
-        for order_id in range(num_order):
-            agent_order_stay[
-                order_id,
-                start_period[order_id]:
-                start_period[order_id] + stay_len[order_id]
-            ] = 1
-        agent_order_stay = agent_order_stay[:,:self.time_span_len]
-        stay_len = agent_order_stay.sum(axis=1)
+            ## number of rooms in orders
+            # TODO 0 for all type in one order
+            order_room_bin = bernoulli.rvs(
+                p=room_rate, 
+                size=(batch_size * OVERSAMPLE_RATIO, self.num_room_type)
+            )
+            order_room_bin = order_room_bin[order_room_bin.sum(axis=1) > 0]
+            order_room_bin = order_room_bin[np.random.choice(
+                range(order_room_bin.shape[0]), size=batch_size, replace=False
+                )]
 
-        ## number of rooms in orders
-        # FIXME 1000 magic number
-        order_room_bin = bernoulli.rvs(p=room_rate, size=(1000, self.num_room_type))
-        # order_room_bin = order_room_bin[order_room_bin.sum(axis=1) > 0]
-        # while order_room_bin.shape[0] < num_order:
-        #     tmp = bernoulli.rvs(p=room_rate, size=(100, self.num_room_type))
-        #     order_room_bin = np.concatenate(
-        #         [order_room_bin, tmp[tmp.sum(axis=1) > 0]]
-        #     )
-        # order_room_bin = order_room_bin[
-        #     np.random.choice(np.arange(len(order_room_bin)),
-        #     size=num_order, replace=False)
-        # ]
+            num_room_ub = np.ceil((1 + padding_rate) * avg_num_room)
+            num_room_lb = np.floor((1 - padding_rate) * avg_num_room)
+            num_room_ub = np.array([int(ub) for ub in num_room_ub])
+            num_room_lb = np.array([int(lb) for lb in num_room_lb])
+            num_room_lb[num_room_lb < 1] = 1
+            rng = np.random.default_rng()
+            quantity = rng.integers(low=num_room_lb, high=num_room_ub,
+                                    endpoint=True,
+                                    size=(batch_size, self.num_room_type))
+            agent_order_room_quantity = quantity * order_room_bin
+            if (agent_order_room_quantity.sum(axis=1) <= 0).any():
+                print("Nonsense order appear!")
+            
+            # 1D array
+            agent_order_price = np.dot(
+                stay_len.reshape(-1, 1) * agent_order_room_quantity,
+                self.individual_price
+            ) * price_mutiplier
 
-        num_room_ub = np.ceil((1 + padding_rate) * avg_num_room)
-        num_room_lb = np.floor((1 - padding_rate) * avg_num_room)
-        num_room_ub = np.array([int(ub) for ub in num_room_ub])
-        num_room_lb = np.array([int(lb) for lb in num_room_lb])
-        num_room_lb[num_room_lb < 0] = 0
-        rng = np.random.default_rng()
-        # FIXME 1000 magic number
-        quantity = rng.integers(low=num_room_lb, high=num_room_ub,
-                                endpoint=True,
-                                size=(1000, self.num_room_type))
-        agent_order_room_quantity = quantity * order_room_bin
-        agent_order_room_quantity = agent_order_room_quantity[
-            agent_order_room_quantity.sum(axis=1) > 0
-        ]
-        agent_order_room_quantity = agent_order_room_quantity[
-            np.random.choice(np.arange(len(agent_order_room_quantity)),
-            size=num_order, replace=False)
-        ]
-
-        # 1D array
-        agent_order_price = np.dot(stay_len.reshape(-1, 1) * agent_order_room_quantity,
-                                   self.individual_price) * price_mutiplier
+            agent_order_stay_pool = np.concatenate(
+                [agent_order_stay_pool, agent_order_stay],
+                axis=0
+            )
+            agent_order_room_quantity_pool = np.concatenate(
+                [agent_order_room_quantity_pool, agent_order_room_quantity],
+                axis=0
+            )
+            agent_order_price_pool = np.concatenate(
+                [agent_order_price_pool, agent_order_price],
+                axis=0
+            )
+            room_request = np.dot(
+                agent_order_room_quantity_pool.T, agent_order_stay_pool
+            ).mean(axis=1)
+            room_request_ratio = room_request / self.capacity
+            if (room_request_ratio > room_request_ratio_threshold).all():
+                break
+            
         # 2D array
         upgrade_fee = (self.individual_price.reshape(-1, 1) -
-                       self.individual_price) * upgrade_fee_multiplier
+                    self.individual_price) * upgrade_fee_multiplier
 
-        return (agent_order_price, agent_order_room_quantity, agent_order_stay,
-                upgrade_fee)
+        return (agent_order_price_pool, agent_order_room_quantity_pool, 
+                agent_order_stay_pool, upgrade_fee)
 
     def generate_individual(self, individual_success_rate: np.array,
                             individual_pop_size: np.array, file_name: str):
@@ -171,9 +184,9 @@ class DataGenerator:
                 individual_success_rate
             )
             for i in range(int(
-                # np.min(self.capacity.max(), individual_pop_size.max()) + 1
+                np.min([self.capacity.max(), individual_pop_size.max()]) + 1
                 # FIXME 100 is magic number
-                100
+                # 100
             ))
         ]).swapaxes(0, 1).swapaxes(1, 2)
 
