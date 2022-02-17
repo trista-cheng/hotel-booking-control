@@ -4,6 +4,7 @@ import numpy as np
 from gurobipy import Model, GRB, quicksum
 
 from data_reader import JSONDataReader
+from data_manager import CAPACITY, INDIVIDUAL_POP_SIZE
 
 def solve(data_reader, instance_id):
     (agent_order_set, time_span, agent_order_price, agent_order_room_quantity,
@@ -20,10 +21,10 @@ def solve(data_reader, instance_id):
         for j in upgrade_levels[i]
     ]
     demand_scenario_indice = [
-        (room_type, t, demand_id)
-        for room_type in room_type_set
+        (room_type, t, str(demand_id))
+        for room_id, room_type in enumerate(room_type_set)
         for t in time_span
-        for demand_id in individual_demand_pmf[room_type][t]
+        for demand_id in range(1, np.min([INDIVIDUAL_POP_SIZE[room_id], room_capacity[room_type]]) + 2)
     ]
 
     model = Model("hotel_booking")
@@ -122,7 +123,8 @@ def solve(data_reader, instance_id):
         ),
         GRB.MAXIMIZE
     )
-    model.Params.TimeLimit = float('inf')
+    # model.Params.TimeLimit = float('inf')
+    model.Params.TimeLimit = 20
     model.Params.MIPGap = 0
     model.optimize()
 
