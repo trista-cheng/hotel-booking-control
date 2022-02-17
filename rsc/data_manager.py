@@ -11,11 +11,12 @@ from data_generator import DataGenerator
 
 OUTPUT_ROOT = "data"
 REPLICATE_NUM = 10
+BATCH_SIZE = 10
 
 # static setting
 TIME_SPAN_LEN = 21
 NUM_ROOM_TYPE = 6
-NUM_ROOM_MULTIPLIER = 0.05
+NUM_ROOM_MULTIPLIER = 0.1
 PRICE_MULTIPLIER = 0.8
 UPGRADE_FEE_MULTIPLIER = 0.8
 PADDING_RATE = 0.2
@@ -24,18 +25,17 @@ INDIVIDUAL_PRICE = np.array([50, 60, 100, 180, 200, 250])
 INDIVIDUAL_POP_SIZE = np.array([200, 150, 150, 100, 50, 50])
 WEEKEND_RATE = np.array([0.5, 0.3, 0.3, 0.2, 0.2, 0.1])
 WEEK_RATE = np.array([0.4, 0.2, 0.2, 0.1, 0.1, 0.1])
+ROOM_REQUEST_RATIO_THRESHOLD = 1.2  # request quantity for each type must exceed times 
+# of capacity
 
 # factor range
 IND_DEMAND_MUL_SET = (0.5, 1, 2)
-STAY_MUL_SET = (1/TIME_SPAN_LEN, 1/10, 1/5, 1/2)
-CAPACITY_MUL_SET = [[1, 1, 1, 1, 1, 1]]
-all_capacity = CAPACITY.sum()
-for c_id, c in enumerate(CAPACITY):
-    down_mul = 1 - (c / (all_capacity - c))
-    mul = np.repeat(down_mul, len(CAPACITY))
-    mul[c_id] = 2
-    CAPACITY_MUL_SET.append(mul)
-CAPACITY_MUL_SET = np.array(CAPACITY_MUL_SET)
+STAY_MUL_SET = (1/TIME_SPAN_LEN, 1/7, 1/2)
+ROOM_RATE_SET = np.array([
+    # np.array([0.1, 0.3, 0.4, 0.3, 0.1, 0.05]),
+    np.array([0.4, 0.3, 0.3, 0.1, 0.1, 0.05]),
+    np.array([0.05, 0.1, 0.1, 0.3, 0.3, 0.4]),
+])
 
 
 def save(data: np.array, name: str, instance_id: int, scenario=None):
@@ -65,48 +65,47 @@ def save(data: np.array, name: str, instance_id: int, scenario=None):
             json.dump(content, f, ensure_ascii=False, indent=4)
 
 class FactorManager:
-    def __init__(self, data_gen, replicate_num, time_span_len, num_room_type,
-                 capacity, individual_price, individual_pop_size,
-                 original_ind_success_rate, num_room_multiplier,
-                 price_multiplier, upgrade_fee_multiplier, padding_rate):
+    def __init__(self, data_gen, replicate_num, individual_pop_size, 
+                 original_ind_success_rate, num_room_multiplier, 
+                 room_request_ratio_threshold, price_multiplier,
+                 upgrade_fee_multiplier, padding_rate, batch_size):
 
-        # register the attributes which are not factors.
+        # register attributes that are not factors.
         self.data_gen = data_gen
         self.replicate_num = replicate_num
-        self.time_span_len = time_span_len
-        self.num_room_type = num_room_type
-        self.capacity = capacity
-        self.individual_price = individual_price
+        self.time_span_len = data_gen.time_span_len
+        self.num_room_type = data_gen.num_room_type
+        self.capacity = data_gen.capacity
         self.individual_pop_size = individual_pop_size
         self.original_ind_success_rate = original_ind_success_rate
         self.num_room_multiplier = num_room_multiplier
+        self.room_request_ratio_threshold = room_request_ratio_threshold
         self.price_multiplier = price_multiplier
         self.upgrade_fee_multiplier = upgrade_fee_multiplier
         self.padding_rate = padding_rate
+        self.batch_size = batch_size
 
-    def save_agent(self, stay_mul, capacity_mul):
-        avg_stay_duration = np.max(int(self.time_span_len * stay_mul), 0)
-        # FIXME 5 is magic number
-        num_order = int((self.time_span_len / avg_stay_duration) * 5)
+    def save_agent(self, stay_mul, room_rate, scenario):
+        avg_stay_duration = np.max([int(self.time_span_len * stay_mul), 1])
         avg_num_room = self.num_room_multiplier * self.capacity
-        scenario = f"stay_{stay_mul}_twicecapacity_{np.argmax(capacity_mul)}"
         for i in range(self.replicate_num):
             agent_order_price, agent_order_room_quantity, agent_order_stay, \
                 upgrade_fee = self.data_gen.generate_agent_order(
-                avg_stay_duration, num_order, avg_num_room, self.padding_rate,
-                capacity_mul, self.price_multiplier, self.upgrade_fee_multiplier
-            )
+                    self.room_request_ratio_threshold, avg_stay_duration, 
+                    avg_num_room, self.padding_rate, room_rate, 
+                    self.price_multiplier, self.upgrade_fee_multiplier, 
+                    self.batch_size
+                )
             save(agent_order_price, "agent_order_price", i, scenario)
             save(agent_order_room_quantity, "agent_order_room_quantity", i,
                  scenario)
             save(agent_order_stay, "agent_order_stay", i, scenario)
             save(upgrade_fee, "upgrade_fee", i, scenario)
 
-    def save_individual(self, ind_demand_mul):
+    def save_individual(self, ind_demand_mul, scenario):
         individual_success_rate = (
             ind_demand_mul * self.original_ind_success_rate
         )
-        scenario = f"ind_demand_{ind_demand_mul}"
         for i in range(self.replicate_num):
             folder = join(OUTPUT_ROOT, "individual_demand_prob", scenario)
             Path(folder).mkdir(parents=True, exist_ok=True)
@@ -114,13 +113,12 @@ class FactorManager:
             pmf = self.data_gen.generate_individual(
                 individual_success_rate, self.individual_pop_size, file_name
             )
-            # FIXME 100 is magic number
             pmf_dict = {}
             for room_id in range(1, self.num_room_type + 1):
                 pmf_dict[room_id] = {}
                 for time_id in range(1, self.time_span_len + 1):
                     pmf_dict[room_id][time_id] = {}
-                    for s in range(1, 101):
+                    for s in range(1, np.min([self.capacity.max(), self.individual_pop_size.max()]) + 2):
                         pmf_dict[room_id][time_id][s] = pmf[(room_id, time_id, s)]
             folder = join(OUTPUT_ROOT, "individual_demand_pmf", scenario)
             Path(folder).mkdir(parents=True, exist_ok=True)
@@ -131,47 +129,60 @@ class FactorManager:
 
 class DataManager:
 
-    def __init__(self, replicate_num, time_span_len, num_room_type, capacity,
-                 individual_price, individual_pop_size, week_rate, weekend_rate,
-                 num_room_multiplier, price_multiplier,
-                 upgrade_fee_multiplier) -> None:
+    def __init__(self, replicate_num, time_span_len, capacity, individual_price, 
+                 individual_pop_size, week_rate, weekend_rate,
+                 num_room_multiplier, room_request_ratio_threshold, 
+                 price_multiplier, upgrade_fee_multiplier, 
+                 padding_rate, batch_size) -> None:
 
         # TODO FEW flexibility in individual success rate.
         is_weekend = np.resize([0, 0, 0, 0, 0, 1, 1], time_span_len)
         week_msk = 1 - is_weekend
         original_ind_success_rate = week_rate.reshape((-1, 1)) * week_msk
         original_ind_success_rate += weekend_rate.reshape((-1, 1)) * is_weekend
-        self.original_ind_success_rate = original_ind_success_rate
+        self.original_ind_success_rate = original_ind_success_rate.copy()
 
         factor_manager = FactorManager(
             DataGenerator(
                 time_span_len, capacity, individual_price
-            ), replicate_num, time_span_len, num_room_type, capacity,
-            individual_price, individual_pop_size,
+            ), replicate_num, individual_pop_size,
             self.original_ind_success_rate, num_room_multiplier,
-            price_multiplier, upgrade_fee_multiplier, PADDING_RATE
+            room_request_ratio_threshold, price_multiplier, 
+            upgrade_fee_multiplier, padding_rate, batch_size
         )
         self.factor_manager = factor_manager
-
-    def simulate(self, ind_demand_mul_set, stay_mul_set, capacity_mul_set):
+        self.scenarios = {}
         ## Save static data
-        save(CAPACITY, "capacity", None)
-        save(INDIVIDUAL_PRICE, "individual_room_price", None)
+        save(capacity, "capacity", None)
+        save(individual_price, "individual_room_price", None)
 
+    def simulate(self, ind_demand_mul_set, stay_mul_set, room_rate_set):
         ## Generate data for each factor
+        self.scenarios["agent"] = []
         for stay_mul in stay_mul_set:
-            for capacity_mul in capacity_mul_set:
+            for room_rate in room_rate_set:
+                # TODO is it neccessary to deepcopy 
+                scenario = f"stay_mul_{stay_mul:.3f}_high_request_room_id_{np.argmax(room_rate)}"
+                self.scenarios["agent"].append(scenario)
                 factor_manager = copy.deepcopy(self.factor_manager)
-                factor_manager.save_agent(stay_mul, capacity_mul)
+                factor_manager.save_agent(stay_mul, room_rate, scenario)
+        self.scenarios["individual"] = []
         for ind_demand_mul in ind_demand_mul_set:
+            scenario = f"ind_demand_{ind_demand_mul}"
+            self.scenarios["individual"].append(scenario)
             factor_manager = copy.deepcopy(self.factor_manager)
-            factor_manager.save_individual(ind_demand_mul)
+            factor_manager.save_individual(ind_demand_mul, scenario)
+        
+        with open("scenarios.json", "w") as f:
+            json.dump(self.scenarios, f)
+        
 
+if __name__ == "__main__":
+    data_manager = DataManager(REPLICATE_NUM, TIME_SPAN_LEN, CAPACITY, 
+        INDIVIDUAL_PRICE, INDIVIDUAL_POP_SIZE, WEEK_RATE, WEEKEND_RATE, 
+        NUM_ROOM_MULTIPLIER, ROOM_REQUEST_RATIO_THRESHOLD, PRICE_MULTIPLIER, 
+        UPGRADE_FEE_MULTIPLIER, PADDING_RATE, BATCH_SIZE,
+    )
 
-data_manager = DataManager(REPLICATE_NUM, TIME_SPAN_LEN, NUM_ROOM_TYPE,
-    CAPACITY, INDIVIDUAL_PRICE, INDIVIDUAL_POP_SIZE, WEEK_RATE,
-    WEEKEND_RATE, NUM_ROOM_MULTIPLIER, PRICE_MULTIPLIER, UPGRADE_FEE_MULTIPLIER
-)
-
-data_manager.simulate(IND_DEMAND_MUL_SET, STAY_MUL_SET, CAPACITY_MUL_SET)
+    data_manager.simulate(IND_DEMAND_MUL_SET, STAY_MUL_SET, ROOM_RATE_SET)
 
