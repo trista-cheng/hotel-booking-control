@@ -65,7 +65,7 @@ for agent_factor in scenarios["agent"]:
         lacks[-1].append(np.mean(lack))
         objs[-1].append(np.mean(obj))
         times[-1].append(np.mean(cal_time))
-# TODO data should with well-defined index and columns
+
 pd.DataFrame(lacks, index=scenarios["agent"], columns=scenarios["individual"]).to_csv('lacks.csv', index=True)
 pd.DataFrame(objs, index=scenarios["agent"], columns=scenarios["individual"]).to_csv('objs.csv', index=True)
 pd.DataFrame(times, index=scenarios["agent"], columns=scenarios["individual"]).to_csv("time_log.csv", index=True)
