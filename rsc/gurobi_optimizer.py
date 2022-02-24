@@ -4,7 +4,7 @@ import numpy as np
 from gurobipy import Model, GRB, quicksum
 
 from data_reader import JSONDataReader
-from data_manager import CAPACITY, INDIVIDUAL_POP_SIZE
+from data_manager import INDIVIDUAL_POP_SIZE
 
 def solve(data_reader, instance_id):
     (agent_order_set, time_span, agent_order_price, agent_order_room_quantity,
@@ -124,9 +124,9 @@ def solve(data_reader, instance_id):
         GRB.MAXIMIZE
     )
     # FIXME scenario id range
-    # model.Params.TimeLimit = float('inf')
-    model.Params.TimeLimit = 20
-    # model.Params.MIPGap = 0
+    model.Params.TimeLimit = float('inf')
+    # model.Params.TimeLimit = 20
+    model.Params.MIPGap = 0
     model.optimize()
 
     # def acc_verbose(order_acceptance):
