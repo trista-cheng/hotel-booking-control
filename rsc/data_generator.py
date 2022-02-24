@@ -146,9 +146,11 @@ class DataGenerator:
             )
             room_request = np.dot(
                 agent_order_room_quantity_pool.T, agent_order_stay_pool
-            ).mean(axis=1)
-            room_request_ratio = room_request / self.capacity
-            if (room_request_ratio > room_request_ratio_threshold).all():
+            )  # .mean(axis=1)
+            # room_request: room x time
+            room_request_ratio = (room_request.sum() / 
+                                  (self.capacity.sum() * self.time_span_len))
+            if room_request_ratio > room_request_ratio_threshold:
                 break
             
         # 2D array
@@ -185,8 +187,6 @@ class DataGenerator:
             )
             for i in range(int(
                 np.min([self.capacity.max(), individual_pop_size.max()]) + 1
-                # FIXME 100 is magic number
-                # 100
             ))
         ]).swapaxes(0, 1).swapaxes(1, 2)
 

@@ -18,14 +18,14 @@ TIME_SPAN_LEN = 21
 NUM_ROOM_TYPE = 6
 NUM_ROOM_MULTIPLIER = 0.1
 PRICE_MULTIPLIER = 0.8
-UPGRADE_FEE_MULTIPLIER = 0.8
+UPGRADE_FEE_MULTIPLIER = 0
 PADDING_RATE = 0.2
 CAPACITY = np.array([200, 150, 100, 70, 30, 10])
 INDIVIDUAL_PRICE = np.array([50, 60, 100, 180, 200, 250])
 INDIVIDUAL_POP_SIZE = np.array([200, 150, 150, 100, 50, 50])
 WEEKEND_RATE = np.array([0.5, 0.3, 0.3, 0.2, 0.2, 0.1])
 WEEK_RATE = np.array([0.4, 0.2, 0.2, 0.1, 0.1, 0.1])
-ROOM_REQUEST_RATIO_THRESHOLD = 1.2  # request quantity for each type must exceed times 
+ROOM_REQUEST_RATIO_THRESHOLD = 1.5  # request quantity for each type must exceed times 
 # of capacity
 
 # factor range
