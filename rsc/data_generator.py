@@ -3,6 +3,9 @@ import xarray as xr
 
 from scipy.stats import binom, bernoulli
 
+# For the room rate. Since there may be one order without any room requested, 
+# we generate times of batch size instances and filter those with at least one 
+# type required  
 OVERSAMPLE_RATIO = 5
 
 def check_consistant_len(attr_list: list):
@@ -49,7 +52,7 @@ class DataGenerator:
     def generate_agent_order(self, room_request_ratio_threshold: float, 
                              avg_stay_duration: int, avg_num_room: np.array, 
                              padding_rate: float, room_rate: np.array, 
-                             price_mutiplier: float,
+                             price_multiplier: float,
                              upgrade_fee_multiplier: float, batch_size: int):
         # TODO price and upgrade fee and padding are less flexible and variety, 
         # static to multiplier.
@@ -66,7 +69,7 @@ class DataGenerator:
         padding_rate([0, 1]): Proportion to expand from average value for
             uniform distribution simultation.
         room_rate(1D): Average probability to book given type in an order.
-        price_mutiplier([0, 1]): The price for an agent order is calculated by
+        price_multiplier([0, 1]): The price for an agent order is calculated by
             the individual price and multiplier
         upgrade_fee_mutiplier([0, 1]): Same as price_multiplier.
         batch_size: determine the number orders generated iteratively.
@@ -111,7 +114,7 @@ class DataGenerator:
             order_room_bin = order_room_bin[order_room_bin.sum(axis=1) > 0]
             order_room_bin = order_room_bin[np.random.choice(
                 range(order_room_bin.shape[0]), size=batch_size, replace=False
-                )]
+            )]
 
             num_room_ub = np.ceil((1 + padding_rate) * avg_num_room)
             num_room_lb = np.floor((1 - padding_rate) * avg_num_room)
@@ -127,10 +130,17 @@ class DataGenerator:
                 print("Nonsense order appear!")
             
             # 1D array
+            price_mul_ub = (1 + padding_rate) * price_multiplier
+            price_mul_lb = (1 - padding_rate) * price_multiplier
+            rng = np.random.default_rng()
+            price_mul = rng.uniform(low=price_mul_lb, high=price_mul_ub,
+                                   size=batch_size)
+            # endpoint is exclusive
             agent_order_price = np.dot(
                 stay_len.reshape(-1, 1) * agent_order_room_quantity,
                 self.individual_price
-            ) * price_mutiplier
+            ) * price_mul
+            # FIXME NAME BAD. price_mul mean_price_mul
 
             agent_order_stay_pool = np.concatenate(
                 [agent_order_stay_pool, agent_order_stay],
@@ -175,6 +185,7 @@ class DataGenerator:
         --------
         pmf_dict(dict):. Keys are room type id, time period id,
         `"quantity"` & `"prob"`
+        demand_ub(1D array): It is same as `individual_pop_size`.
         """
         # FIXME generate useless prob
         # For each room type in each period, calculate same range of possible
@@ -185,13 +196,14 @@ class DataGenerator:
                 individual_pop_size.reshape((-1, 1)),
                 individual_success_rate
             )
-            for i in range(int(
-                np.min([self.capacity.max(), individual_pop_size.max()]) + 1
-            ))
+            for i in range(int(individual_pop_size.max()) + 1)
         ]).swapaxes(0, 1).swapaxes(1, 2)
+        # Keep low coupling. For possible realization value for demand quantity, 
+        # the possible maximum value is the population value. Do not need to
+        # consider possible maximum effective value, which means we should not 
+        # take the capacity into account in PMF calculation.  
 
         xr.DataArray(pmf).to_netcdf(f"{file_name}.nc")
-        # xr.open_dataset("saved_on_disk.nc").to_numpy()
         data = xr.DataArray(
             pmf,
             dims=("room", "time", "outcome"),
@@ -203,4 +215,4 @@ class DataGenerator:
             }
         )
         pmf_dict = data.to_dataframe(name="prob").T.to_dict()
-        return pmf_dict
+        return pmf_dict, individual_pop_size

@@ -3,16 +3,14 @@ import numpy as np
 
 from gurobipy import Model, GRB, quicksum
 
-from data_reader import JSONDataReader
-from data_manager import INDIVIDUAL_POP_SIZE
-
+# FIXME class contruct
 def solve(data_reader, instance_id):
     (agent_order_set, time_span, agent_order_price, agent_order_room_quantity,
         agent_order_stay) = data_reader.collect_agent_info(instance_id)
-    room_type_set, upgrade_levels, downgrade_levels, room_capacity, upgrade_fee = \
-        data_reader.collect_hotel_info(instance_id)
-    individual_demand_pmf, individual_room_price = \
-        data_reader.collect_individual_info(instance_id)
+    (room_type_set, upgrade_levels, downgrade_levels, room_capacity, 
+     upgrade_fee) = data_reader.collect_hotel_info(instance_id)
+    individual_demand_pmf, individual_room_price, demand_ub = \
+        data_reader.collect_individual_info()
 
     upgrade_indice = [
         (k, i, j)
@@ -20,56 +18,73 @@ def solve(data_reader, instance_id):
         for i in agent_order_room_quantity[k]
         for j in upgrade_levels[i]
     ]
-    demand_scenario_indice = [
-        (room_type, t, str(demand_id))
+    demand_indice = [
+        (room_type, t, str(outcome_id))
         for room_type in room_type_set
         for t in time_span
-        for demand_id in range(1, np.min([INDIVIDUAL_POP_SIZE[int(room_type) - 1], room_capacity[room_type]]) + 2)
+        for outcome_id in range(1, demand_ub[room_type] + 2)
     ]
-    # FIXME scenario id range
+    # Set population size as UB of maximum possible value B_i
+    # TODO outcome id range could be narrower.
+    # range(
+    #   1, 
+    #   np.min([
+    #     INDIVIDUAL_POP_SIZE[int(room_type) - 1], 
+    #     room_capacity[room_type]
+    #   ]) + 2
+    # )
+    # maybe use itertools would be more clean
+    # or it require B_i parameter to pass
     model = Model("hotel_booking")
     order_acceptance = model.addVars(agent_order_set, vtype=GRB.BINARY,
                                     name=f'Order acceptance')
     upgrade_amount = model.addVars(upgrade_indice, vtype=GRB.INTEGER,
                                 name=f'upgrade amount')
-    effective_sale_for_individual = model.addVars(demand_scenario_indice,
+    effective_sale_for_individual = model.addVars(demand_indice,
                                                 vtype=GRB.INTEGER,
                                                 name=f'Sale for individuals')
 
     # no indirect upgrades
     model.addConstrs(
-        quicksum(upgrade_amount[order_id, room_type, up_type]
-                for up_type in upgrade_levels[room_type]) <=
-        agent_order_room_quantity[order_id][room_type] * order_acceptance[order_id]
-        for order_id in agent_order_set
-        for room_type in agent_order_room_quantity[order_id]
+        (
+            quicksum(upgrade_amount[order_id, room_type, up_type]
+                    for up_type in upgrade_levels[room_type]) <=
+            (agent_order_room_quantity[order_id][room_type] * 
+            order_acceptance[order_id])
+            for order_id in agent_order_set
+            for room_type in agent_order_room_quantity[order_id]
+        ), 
+        name="Direct upgrades"
     )
 
     # capacity constraint
     model.addConstrs(
-        quicksum(
-            agent_order_stay[order_id][t] *
-            agent_order_room_quantity[order_id][room_type] *
-            order_acceptance[order_id] for order_id in agent_order_set
-        ) -
-        quicksum(
-            agent_order_stay[order_id][t] *
-            upgrade_amount[order_id, room_type, up_type]
-            for order_id in agent_order_set
-            for up_type in upgrade_levels[room_type]
-        ) +
-        quicksum(
-            agent_order_stay[order_id][t] *
-            upgrade_amount[order_id, low_type, room_type]
-            for order_id in agent_order_set
-            for low_type in downgrade_levels[room_type]
-        )
-        <= room_capacity[room_type]
-        for t in time_span for room_type in room_type_set
+        (
+            quicksum(
+                agent_order_stay[order_id][t] *
+                agent_order_room_quantity[order_id][room_type] *
+                order_acceptance[order_id] for order_id in agent_order_set
+            ) -
+            quicksum(
+                agent_order_stay[order_id][t] *
+                upgrade_amount[order_id, room_type, up_type]
+                for order_id in agent_order_set
+                for up_type in upgrade_levels[room_type]
+            ) +
+            quicksum(
+                agent_order_stay[order_id][t] *
+                upgrade_amount[order_id, low_type, room_type]
+                for order_id in agent_order_set
+                for low_type in downgrade_levels[room_type]
+            )
+            <= room_capacity[room_type]
+            for t in time_span for room_type in room_type_set
+        ),
+        name="Capacity"
     )
 
     # define the effective sale for individual
-    model.addConstrs(
+    model.addConstrs((
         room_capacity[room_type] -
         quicksum(
             agent_order_stay[order_id][t] *
@@ -89,14 +104,18 @@ def solve(data_reader, instance_id):
             for low_type in
                 [i for i in room_type_set if room_type in upgrade_levels[i]]
         )
-        >= effective_sale_for_individual[room_type, t, scenario_id]
-        for room_type, t, scenario_id in demand_scenario_indice
+        >= effective_sale_for_individual[room_type, t, outcome_id]
+        for room_type, t, outcome_id in demand_indice),
+        name="Individual sales limited by the vacancy"
     )
 
     model.addConstrs(
-        individual_demand_pmf[room_type][t][scenario_id]['quantity'] >=
-        effective_sale_for_individual[room_type, t, scenario_id]
-        for room_type, t, scenario_id in demand_scenario_indice
+        (
+            individual_demand_pmf[room_type][t][outcome_id]['quantity'] >=
+            effective_sale_for_individual[room_type, t, outcome_id]
+            for room_type, t, outcome_id in demand_indice
+        ),
+        name="Individual sales limited by the realization of demand"
     )
 
     model.setObjective(
@@ -114,16 +133,19 @@ def solve(data_reader, instance_id):
         quicksum(
             individual_room_price[room_type] *
             quicksum(
-                individual_demand_pmf[room_type][t][str(scenario_id)]['prob'] *
-                effective_sale_for_individual[room_type, t, str(scenario_id)]
+                individual_demand_pmf[room_type][t][str(outcome_id)]['prob'] *
+                effective_sale_for_individual[room_type, t, str(outcome_id)]
                 for t in time_span
-                for scenario_id in range(1, np.min([INDIVIDUAL_POP_SIZE[int(room_type) - 1], room_capacity[room_type]]) + 2)
+                for outcome_id in range(1, demand_ub[room_type] + 2)
             ) 
             for room_type in room_type_set
         ),
         GRB.MAXIMIZE
     )
-    # FIXME scenario id range
+    # FIXME DUPLICATE
+    # TODO outcome id range could be narrower.
+    # maybe using itertools would be cleaner
+    # or it require B_i parameter to pass 
     model.Params.TimeLimit = float('inf')
     # model.Params.TimeLimit = 20
     model.Params.MIPGap = 0
@@ -152,17 +174,21 @@ def solve(data_reader, instance_id):
 
     # for room_type in room_type_set:
     #     print(room_type)
-    #     for scenario_id in individual_demand_pmf[room_type]:
-    #         print(scenario_id, ':', individual_demand_pmf[room_type][scenario_id],)
+    #     for outcome_id in individual_demand_pmf[room_type]:
+    #         print(outcome_id, ':', individual_demand_pmf[room_type][outcome_id],)
     #         for t in time_span:
-    #             print(effective_sale_for_individual[room_type, t, scenario_id].x, end=', ')
+    #             print(effective_sale_for_individual[room_type, t, outcome_id].x, end=', ')
     #         print()
     #     print('='*20)
 
     # model.write('mip1.rlp')
 
-    up_result = np.zeros((len(agent_order_set), len(room_type_set), len(room_type_set)))
+    up_result = np.zeros(
+        (len(agent_order_set), len(room_type_set), len(room_type_set))
+    )
     for indice in upgrade_indice:
-        up_result[int(indice[0]) -1, int(indice[1]) -1, int(indice[2]) -1] = upgrade_amount[indice].x
-    return np.array([order_acceptance[i].x for i in agent_order_set]), up_result, agent_order_room_quantity, agent_order_stay, room_capacity, model.objVal
+        up_result[int(indice[0]) -1, int(indice[1]) -1, int(indice[2]) -1] = \
+            upgrade_amount[indice].x
+    return (np.array([order_acceptance[i].x for i in agent_order_set]), 
+            up_result, model.objVal)
     model.close()

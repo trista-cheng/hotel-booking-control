@@ -18,13 +18,13 @@ TIME_SPAN_LEN = 21
 NUM_ROOM_TYPE = 6
 NUM_ROOM_MULTIPLIER = 0.1
 PRICE_MULTIPLIER = 0.8
-UPGRADE_FEE_MULTIPLIER = 0
+UPGRADE_FEE_MULTIPLIER = 0.8 * 0.6
 PADDING_RATE = 0.2
 CAPACITY = np.array([200, 150, 100, 70, 30, 10])
-INDIVIDUAL_PRICE = np.array([50, 60, 100, 180, 200, 250])
-INDIVIDUAL_POP_SIZE = np.array([200, 150, 150, 100, 50, 50])
-WEEKEND_RATE = np.array([0.5, 0.3, 0.3, 0.2, 0.2, 0.1])
-WEEK_RATE = np.array([0.4, 0.2, 0.2, 0.1, 0.1, 0.1])
+INDIVIDUAL_PRICE = np.array([90, 100, 130, 140, 180, 200])
+INDIVIDUAL_POP_SIZE = np.array([200, 150, 150, 100, 50, 30])
+WEEKEND_RATE = np.array([0.4, 0.3, 0.3, 0.2, 0.2, 0.1])
+WEEK_RATE = np.array([0.2, 0.15, 0.15, 0.1, 0.1, 0.05])
 ROOM_REQUEST_RATIO_THRESHOLD = 1.5  # request quantity for each type must exceed times 
 # of capacity
 
@@ -33,14 +33,15 @@ IND_DEMAND_MUL_SET = (0.5, 1, 2)
 STAY_MUL_SET = (1/TIME_SPAN_LEN, 1/7, 1/2)
 ROOM_RATE_SET = np.array([
     # np.array([0.1, 0.3, 0.4, 0.3, 0.1, 0.05]),
-    np.array([0.4, 0.3, 0.3, 0.1, 0.1, 0.05]),
-    np.array([0.05, 0.1, 0.1, 0.3, 0.3, 0.4]),
+    np.array([0.7, 0.6, 0.5, 0.4, 0.3, 0.2]),
+    np.array([0.2, 0.3, 0.4, 0.5, 0.6, 0.7]),
 ])
 
 
 def save(data: np.array, name: str, instance_id: int, scenario=None):
+    # FIXME scenario 名字修掉
     """
-    Not to build folder if name is None
+    Not to build folder if `instance_id` is None
     """
     if len(data.shape) == 1:
         df = pd.DataFrame(data, columns=["value"])
@@ -100,30 +101,31 @@ class FactorManager:
             save(agent_order_room_quantity, "agent_order_room_quantity", i,
                  scenario)
             save(agent_order_stay, "agent_order_stay", i, scenario)
-            save(upgrade_fee, "upgrade_fee", i, scenario)
+            save(upgrade_fee, "upgrade_fee", None)
 
     def save_individual(self, ind_demand_mul, scenario):
         individual_success_rate = (
             ind_demand_mul * self.original_ind_success_rate
         )
-        for i in range(self.replicate_num):
-            folder = join(OUTPUT_ROOT, "individual_demand_prob", scenario)
-            Path(folder).mkdir(parents=True, exist_ok=True)
-            file_name = join(folder, str(i))
-            pmf = self.data_gen.generate_individual(
-                individual_success_rate, self.individual_pop_size, file_name
-            )
-            pmf_dict = {}
-            for room_id in range(1, self.num_room_type + 1):
-                pmf_dict[room_id] = {}
-                for time_id in range(1, self.time_span_len + 1):
-                    pmf_dict[room_id][time_id] = {}
-                    for s in range(1, np.min([self.capacity.max(), self.individual_pop_size.max()]) + 2):
-                        pmf_dict[room_id][time_id][s] = pmf[(room_id, time_id, s)]
-            folder = join(OUTPUT_ROOT, "individual_demand_pmf", scenario)
-            Path(folder).mkdir(parents=True, exist_ok=True)
-            with open(join(folder, f"{i}.json"), "w", encoding='utf-8') as f:
-                json.dump(pmf_dict, f, ensure_ascii=False, indent=4)
+        # for i in range(self.replicate_num):
+        folder = join(OUTPUT_ROOT, "individual_demand_prob")
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        file_name = join(folder, f"{scenario}")
+        pmf, demand_ub = self.data_gen.generate_individual(
+            individual_success_rate, self.individual_pop_size, file_name
+        )
+        pmf_dict = {}
+        for room_id in range(1, self.num_room_type + 1):
+            pmf_dict[room_id] = {}
+            for time_id in range(1, self.time_span_len + 1):
+                pmf_dict[room_id][time_id] = {}
+                for s in range(1, np.min([self.capacity.max(), self.individual_pop_size.max()]) + 2):
+                    pmf_dict[room_id][time_id][s] = pmf[(room_id, time_id, s)]
+        folder = join(OUTPUT_ROOT, "individual_demand_pmf")
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        with open(join(folder, f"{scenario}.json"), "w", encoding='utf-8') as f:
+            json.dump(pmf_dict, f, ensure_ascii=False, indent=4)
+        save(demand_ub, "demand_ub", None)
 
 
 

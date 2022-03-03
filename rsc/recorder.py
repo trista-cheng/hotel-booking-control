@@ -6,13 +6,15 @@ import xarray as xr
 from os.path import join
 from pathlib import Path
 from time import perf_counter
-from data_reader import JSONDataReader
+from data_reader import CSVDataReader, JSONDataReader
 from gurobi_optimizer import solve
+from metric import get_reject_room_ratio
 
 with open("scenarios.json") as f:
     scenarios = json.load(f)
 
 SOLUTION_DIR = "solution"
+INSTANCE_NUM = 10
 
 lacks = []
 objs = []
@@ -20,21 +22,17 @@ times = []
 for agent_factor in scenarios["agent"]:
     scenario = {}
     scenario["agent"] = agent_factor
-    lacks.append([])
-    objs.append([])
-    times.append([])
     for ind_factor in scenarios["individual"]:
         scenario["individual"] = ind_factor
         lack = []
         obj = []
-        cal_time = []
-        for instance_id in range(2):
+        time = []
+        for instance_id in range(INSTANCE_NUM):
             start_time = perf_counter()
             data_reader = JSONDataReader(scenario)
             # acceptance: 1 x order
             # upgrade: order x room x room
-            (acceptance, upgrade, order_room_quantity, order_stay, 
-             capacity, obj_val) = solve(data_reader, instance_id)
+            acceptance, upgrade, obj_val = solve(data_reader, instance_id)
             output_folder = join(SOLUTION_DIR, agent_factor + ind_factor)
             Path(output_folder).mkdir(exist_ok=True, parents=True)
             pd.DataFrame(acceptance).to_csv(
@@ -54,18 +52,26 @@ for agent_factor in scenarios["agent"]:
                 coords=coords,
             )
             upgrade_data.to_netcdf(join(output_folder, f"{instance_id}_upgrade.nc"))
-            order_room_quantity = pd.DataFrame.from_dict(order_room_quantity, orient="index").to_numpy()
-            order_stay = pd.DataFrame.from_dict(order_stay, orient="index").to_numpy()
-            capacity = pd.DataFrame.from_dict(capacity, orient="index").to_numpy()
-            stay_sum = order_stay.sum(axis=1) * (1 - acceptance)
-            lack_value = (stay_sum.reshape((-1, 1)) * order_room_quantity).sum() / (order_stay.shape[1] * capacity.sum())
+            lack_value = get_reject_room_ratio(scenario, instance_id, 
+                                               acceptance)
             lack.append(lack_value)
             obj.append(obj_val)
-            cal_time.append(perf_counter() - start_time)
-        lacks[-1].append(np.mean(lack))
-        objs[-1].append(np.mean(obj))
-        times[-1].append(np.mean(cal_time))
+            time.append(perf_counter() - start_time)
+        lacks.append(np.mean(lack))
+        objs.append(np.mean(obj))
+        times.append(np.mean(time))
 
+data = xr.DataArray(
+    pmf,
+    dims=("room", "time", "outcome"),
+    coords={
+        "room": np.arange(self.num_room_type) + 1,
+        "time": np.arange(self.time_span_len) + 1,
+        "outcome": np.arange(pmf.shape[2]) + 1,
+        "quantity": ("outcome", np.arange(pmf.shape[2]))
+    }
+)
+pmf_dict = data.to_dataframe(name="prob")
 pd.DataFrame(lacks, index=scenarios["agent"], columns=scenarios["individual"]).to_csv('lacks.csv', index=True)
 pd.DataFrame(objs, index=scenarios["agent"], columns=scenarios["individual"]).to_csv('objs.csv', index=True)
 pd.DataFrame(times, index=scenarios["agent"], columns=scenarios["individual"]).to_csv("time_log.csv", index=True)
