@@ -164,7 +164,7 @@ class DataGenerator:
                 break
             
         # 2D array
-        upgrade_fee = (self.individual_price.reshape(-1, 1) -
+        upgrade_fee = -(self.individual_price.reshape(-1, 1) -
                     self.individual_price) * upgrade_fee_multiplier
 
         return (agent_order_price_pool, agent_order_room_quantity_pool, 
