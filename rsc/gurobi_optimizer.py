@@ -146,9 +146,9 @@ def solve(data_reader, instance_id):
     # TODO outcome id range could be narrower.
     # maybe using itertools would be cleaner
     # or it require B_i parameter to pass 
-    model.Params.TimeLimit = float('inf')
-    # model.Params.TimeLimit = 20
-    model.Params.MIPGap = 0
+    # model.Params.TimeLimit = float('inf')
+    model.Params.TimeLimit = 10
+    # model.Params.MIPGap = 0
     model.optimize()
 
     # def acc_verbose(order_acceptance):
