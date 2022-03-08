@@ -87,7 +87,7 @@ class JSONDataReader:
         ) as f:
             individual_room_price = json.load(f)
         with open(
-            join(self.data_root, "individual_demand_pmf", f'{self.scenario["individual"].json}')
+            join(self.data_root, "individual_demand_pmf", f'{self.scenario["individual"]}.json')
         ) as f:
             individual_demand_pmf = json.load(f)
         with open(
@@ -136,7 +136,7 @@ class CSVDataReader:
         upgrade_fee : 2-D array
         """
         room_capacity = pd.read_csv(
-            join(self.data_root, "room_capacity.csv")
+            join(self.data_root, "capacity.csv")
         )['value'].to_numpy()
         upgrade_fee = pd.read_csv(
             join(self.data_root, "upgrade_fee.csv")
@@ -154,11 +154,18 @@ class CSVDataReader:
         individual_room_price = pd.read_csv(
             join(self.data_root, "individual_room_price.csv")
         )['value'].to_numpy()
-        individual_demand_prob = xr.open_dataset(
+        ds = xr.open_dataset(
             join(self.data_root, "individual_demand_prob", 
-                 f'{self.scenario["individual"]}.nc')).to_numpy()
+                 f'{self.scenario["individual"]}.nc')
+        )
+        individual_demand_prob = ds.to_dataframe().to_numpy().reshape(
+            [ds.dims[key] for key in ds.dims]
+        )
         return individual_demand_prob, individual_room_price
 
 
 # folder = join(DATA_ROOT, scenario)
 # given one instance
+
+# reader = CSVDataReader({"agent": "stay_mul_0.048_high_request_room_id_0", "individual": "ind_demand_0.5"})
+# reader.collect_individual_info()
