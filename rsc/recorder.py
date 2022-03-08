@@ -2,37 +2,52 @@ import json
 import numpy as np
 import pandas as pd
 import xarray as xr
+import logging
 
 from os.path import join
 from pathlib import Path
 from time import perf_counter
+
 from data_reader import CSVDataReader, JSONDataReader
 from gurobi_optimizer import solve
 from metric import get_reject_room_ratio
+from validator import Validator
 
 with open("scenarios.json") as f:
     scenarios = json.load(f)
 
+logging.basicConfig(filename='log.log', 
+                    format='%(asctime)s %(levelname)-8s %(message)s',
+                    level=logging.WARNING, datefmt='%Y-%m-%d %H:%M:%S')
+logging.warning("Start!")
+
 SOLUTION_DIR = "solution"
-INSTANCE_NUM = 10
+INSTANCE_NUM = 2
 
 lacks = []
 objs = []
 times = []
+index = []
 for agent_factor in scenarios["agent"]:
     scenario = {}
     scenario["agent"] = agent_factor
     for ind_factor in scenarios["individual"]:
         scenario["individual"] = ind_factor
+        index.append((agent_factor.split('_')[2], agent_factor.split('_')[-1], ind_factor.split('_')[-1]))
         lack = []
         obj = []
-        time = []
+        cal_time = []
         for instance_id in range(INSTANCE_NUM):
             start_time = perf_counter()
             data_reader = JSONDataReader(scenario)
             # acceptance: 1 x order
             # upgrade: order x room x room
             acceptance, upgrade, obj_val = solve(data_reader, instance_id)
+
+            test = Validator(scenario, instance_id, acceptance, upgrade)
+            test.validate_shape()
+            test.validate_capacity_obj(obj_val)
+
             output_folder = join(SOLUTION_DIR, agent_factor + ind_factor)
             Path(output_folder).mkdir(exist_ok=True, parents=True)
             pd.DataFrame(acceptance).to_csv(
@@ -56,22 +71,15 @@ for agent_factor in scenarios["agent"]:
                                                acceptance)
             lack.append(lack_value)
             obj.append(obj_val)
-            time.append(perf_counter() - start_time)
+            cal_time.append(perf_counter() - start_time)
+            logging.warning(f"{agent_factor}, {ind_factor}, {instance_id}")
         lacks.append(np.mean(lack))
         objs.append(np.mean(obj))
-        times.append(np.mean(time))
+        times.append(np.mean(cal_time))
 
-data = xr.DataArray(
-    pmf,
-    dims=("room", "time", "outcome"),
-    coords={
-        "room": np.arange(self.num_room_type) + 1,
-        "time": np.arange(self.time_span_len) + 1,
-        "outcome": np.arange(pmf.shape[2]) + 1,
-        "quantity": ("outcome", np.arange(pmf.shape[2]))
-    }
+result = np.hstack(
+    [np.array(objs).reshape((-1, 1)), np.array(lacks).reshape((-1, 1)), np.array(times).reshape((-1, 1))]
 )
-pmf_dict = data.to_dataframe(name="prob")
-pd.DataFrame(lacks, index=scenarios["agent"], columns=scenarios["individual"]).to_csv('lacks.csv', index=True)
-pd.DataFrame(objs, index=scenarios["agent"], columns=scenarios["individual"]).to_csv('objs.csv', index=True)
-pd.DataFrame(times, index=scenarios["agent"], columns=scenarios["individual"]).to_csv("time_log.csv", index=True)
+index = pd.MultiIndex.from_tuples(index, names=["stay mul", "high request room", "ind demand mul"])
+pd.DataFrame(result, index=index, columns=["obj", "reject capacity ratio", "time"]).to_csv("result.csv")
+logging.warning("End!")
