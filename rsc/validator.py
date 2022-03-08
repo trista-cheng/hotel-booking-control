@@ -1,5 +1,5 @@
-from asyncore import read
 import numpy as np
+import pandas as pd
 
 from data_reader import CSVDataReader
 
@@ -17,7 +17,7 @@ class ConstraintViolation(Exception):
 
 class Validator:
     def __init__(self, scenario, instance_id: int, acceptance: np.array, 
-                 upgrade: np.array):
+                 upgrade: np.array, sale):
         """
         Methods
         --------
@@ -33,11 +33,13 @@ class Validator:
         self.order_price, self.order_room, self.order_stay = \
             reader.collect_agent_info(instance_id)
         self.capacity, self.upgrade_fee = reader.collect_hotel_info(instance_id)
-        self.ind_pmf, self.ind_room_price = reader.collect_individual_info()
+        self.ind_pmf, self.ind_room_price, self.demand_ub = \
+            reader.collect_individual_info()
         self.error_base = ConstraintViolation(self.scenario, self.instance_id)
         self.num_room = self.capacity.shape[0]
         self.num_order = self.order_price.shape[0]
         self.num_period = self.order_stay.shape[1]
+        self.sale = sale
         
     def validate_shape(self):
         if not (self.num_order == self.acceptance.shape[0]):
@@ -101,8 +103,23 @@ class Validator:
         ind_quantity = np.resize(np.arange(self.ind_pmf.shape[2]),
             (self.num_room, self.num_period, self.ind_pmf.shape[2], 1)
         )
+        # For the calculation convenience, the matrix has the same max demand_ub 
+        # elements for the last dimension. However, the PMF would be zero, so 
+        # the product result should be guaranteed.
         sale = np.amin(np.concatenate([vacancy, ind_quantity], axis=3), axis=3)
-        ind_rev = sale * self.ind_pmf
+        mul_index = pd.MultiIndex.from_product(
+            [[str(r + 1) for r in range(self.num_room)], 
+             [str(t + 1) for t in range(self.num_period)],
+             [str(o + 1) for o in range(self.ind_pmf.shape[2])]],
+            names=["room", "time", "outcome"]
+        )
+        sale_df = pd.DataFrame(sale.flatten(), index=mul_index, columns=["sale"])
+        sale_merge = sale_df.merge(self.sale, left_index=True, right_index=True, 
+                                suffixes=['_validator', '_gurobi'], how='left', 
+                                indicator=True)
+        sale_merge.to_csv("merge.csv")
+        ind_rev = (sale * self.ind_pmf * 
+                   self.ind_room_price.reshape((self.num_room, 1, 1)))
         total_exp_rev = agent_rev + ind_rev.sum()
 
         if not np.isclose(total_exp_rev, obj):

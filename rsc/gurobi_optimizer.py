@@ -1,4 +1,5 @@
 import time
+import pandas as pd
 import numpy as np
 
 from gurobipy import Model, GRB, quicksum
@@ -37,12 +38,12 @@ def solve(data_reader, instance_id):
     # or it require B_i parameter to pass
     model = Model("hotel_booking")
     order_acceptance = model.addVars(agent_order_set, vtype=GRB.BINARY,
-                                    name=f'Order acceptance')
+                                     name=f'Order acceptance')
     upgrade_amount = model.addVars(upgrade_indice, vtype=GRB.INTEGER,
-                                name=f'upgrade amount')
+                                   name=f'upgrade amount')
     effective_sale_for_individual = model.addVars(demand_indice,
-                                                vtype=GRB.INTEGER,
-                                                name=f'Sale for individuals')
+                                                  vtype=GRB.INTEGER,
+                                                  name=f'Sale for individuals')
 
     # no indirect upgrades
     model.addConstrs(
@@ -189,6 +190,18 @@ def solve(data_reader, instance_id):
     for indice in upgrade_indice:
         up_result[int(indice[0]) -1, int(indice[1]) -1, int(indice[2]) -1] = \
             upgrade_amount[indice].x
-    return (np.array([order_acceptance[i].x for i in agent_order_set]), 
-            up_result, model.objVal)
+    sale = pd.DataFrame.from_dict(
+        model.getAttr('x', effective_sale_for_individual), 
+        orient="index"
+    )
+    mul_index = pd.MultiIndex.from_tuples(
+        effective_sale_for_individual.keys(), 
+        names=["room", "time", "outcome"]
+    )
+    sale = sale.reindex(mul_index)
+    sale.columns = ["sale"]
+    acc_result = np.array(
+        [order_acceptance[str(i + 1)].x for i in range(len(agent_order_set))]
+    )
+    return acc_result, up_result, model.objVal, sale
     model.close()
