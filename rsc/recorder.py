@@ -42,9 +42,9 @@ for agent_factor in scenarios["agent"]:
             data_reader = JSONDataReader(scenario)
             # acceptance: 1 x order
             # upgrade: order x room x room
-            acceptance, upgrade, obj_val = solve(data_reader, instance_id)
+            acceptance, upgrade, obj_val, sale = solve(data_reader, instance_id)
 
-            test = Validator(scenario, instance_id, acceptance, upgrade)
+            test = Validator(scenario, instance_id, acceptance, upgrade, sale)
             test.validate_shape()
             test.validate_capacity_obj(obj_val)
 
