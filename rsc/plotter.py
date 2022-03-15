@@ -7,8 +7,8 @@ import matplotlib.font_manager as fm
 fm.fontManager.addfont('TaipeiSansTCBeta-Regular.ttf')
 mpl.rc('font', family='Taipei Sans TC Beta')
 
-def plot_heatmap(df, x_tick, y_tick, x_label, y_label, title, file_name):
-    fig, ax = plt.subplots(figsize=(8, 14))
+def plot_heatmap(df, x_tick, y_tick, x_label, y_label, title, file_name, figsize):
+    fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(df, square=False, annot=True, cbar=False, fmt='.2f', cmap="Blues")
     plt.xlabel(x_label)
     plt.ylabel(y_label)

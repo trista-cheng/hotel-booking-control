@@ -21,6 +21,6 @@ for ind_factor in scenarios["individual"]:
     x_tick.append(ind_factor.split("_")[-1])
 
 lack = pd.read_csv("lacks.csv", index_col=0)
-plot_heatmap(lack, x_tick, y_tick, "Individual demand", "Factor about orders from agents", "被拒絕的訂單所需房間數對產能的比值", "lack.png")
+plot_heatmap(lack, x_tick, y_tick, "Individual demand", "Factor about orders from agents", "被拒絕的訂單所需房間數對產能的比值", "lack.png", (8, 12))
 obj = pd.read_csv("objs.csv", index_col=0)
-plot_heatmap(obj, x_tick, y_tick, "Individual demand", "Factor about orders from agents", "Objective Value", "obj.png")
+plot_heatmap(obj, x_tick, y_tick, "Individual demand", "Factor about orders from agents", "Objective Value", "obj.png", (8, 12))
