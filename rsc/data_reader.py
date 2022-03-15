@@ -87,6 +87,10 @@ class JSONDataReader:
                 for i in room_type_set
             }
             downgrade_levels = upgrade_levels
+        elif upgrade_rule == "no":
+            empty_levels = {i: []for i in room_type_set}
+            upgrade_levels = empty_levels
+            downgrade_levels = empty_levels
         
         return (room_type_set, upgrade_levels, downgrade_levels, room_capacity,
                 upgrade_fee)
