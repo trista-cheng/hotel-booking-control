@@ -14,27 +14,59 @@ REPLICATE_NUM = 10
 BATCH_SIZE = 10
 
 # static setting
-TIME_SPAN_LEN = 21
-NUM_ROOM_TYPE = 6
+TIME_SPAN_LEN = 42
+NUM_ROOM_TYPE = 24
 NUM_ROOM_MULTIPLIER = 0.1
 PRICE_MULTIPLIER = 0.8
-UPGRADE_FEE_MULTIPLIER = 0.8 * 0.6
+UPGRADE_FEE_GAP_MULTIPLIER = 0.3
 PADDING_RATE = 0.3
-CAPACITY = np.array([200, 150, 100, 70, 60, 50])
-INDIVIDUAL_PRICE = np.array([90, 100, 130, 140, 180, 200])
-INDIVIDUAL_POP_SIZE = np.array([100, 80, 70, 50, 40, 20])
-WEEKEND_RATE = np.array([0.4, 0.3, 0.3, 0.2, 0.2, 0.1])
-WEEK_RATE = np.array([0.2, 0.15, 0.15, 0.1, 0.1, 0.05])
-ROOM_REQUEST_RATIO_THRESHOLD = 1.5  # request quantity for each type must exceed times 
+CAPACITY = np.array([
+    200, 180, 170, 160, 150, 145, 140, 135, 130, 125, 
+    120, 110, 100, 90, 80, 75, 70, 65, 60, 50,
+    40, 30, 25, 15
+])
+INDIVIDUAL_PRICE = np.array([
+    900, 1000, 1100, 1200, 1300, 1350, 1400, 1450, 1500, 1550,
+    1600, 1700, 1800, 1850, 1900, 2000, 2100, 2200, 2300, 2400,
+    2500, 2700, 4000, 5000,
+])
+INDIVIDUAL_POP_SIZE = np.array([
+    100, 90, 85, 80, 75, 72, 70, 67, 65, 62, 
+    60, 55, 50, 45, 40, 37, 35, 32, 30, 30,
+    30, 25, 25, 25
+])
+WEEKEND_RATE = np.array([
+    0.4, 0.35, 0.3, 0.35, 0.35, 0.3, 0.25, 0.3, 0.3, 0.25,
+    0.2, 0.1, 0.25, 0.25, 0.2, 0.2, 0.1, 0.2, 0.2, 0.1,
+    0.1, 0.1, 0.2, 0.2,
+])
+WEEK_RATE = np.array([
+    0.3, 0.3, 0.2, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2,
+    0.15, 0.1, 0.2, 0.15, 0.1, 0.15, 0.1, 0.1, 0.1, 0.05,
+    0.05, 0.05, 0.05, 0.1,
+])
+ROOM_REQUEST_RATIO_THRESHOLD = 2  # request quantity for each type must exceed times 
 # of capacity
 
 # factor range
 IND_DEMAND_MUL_SET = (0.5, 1, 2)
 STAY_MUL_SET = (1/4, 1/5, 1/7, 1/9)
 ROOM_RATE_SET = np.array([
-    np.array([0.1, 0.3, 0.5, 0.4, 0.2, 0.05]),
-    np.array([0.5, 0.4, 0.3, 0.2, 0.1, 0.05]),
-    np.array([0.05, 0.1, 0.2, 0.3, 0.4, 0.5]),
+    np.array([
+        0.05, 0.1, 0.2, 0.2, 0.2, 0.3, 0.3, 0.3, 0.3, 0.4,
+        0.4, 0.5, 0.4, 0.4, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 
+        0.2, 0.1, 0.1, 0.05
+    ]),
+    np.array([
+        0.05, 0.05, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 
+        0.2, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.4, 
+        0.4, 0.4, 0.4, 0.5
+    ]),
+    np.array([
+        0.5, 0.4, 0.4, 0.4, 0.4, 0.3, 0.3, 0.3, 0.3, 0.3, 
+        0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 
+        0.1, 0.1, 0.05, 0.05
+    ]),
 ])
 
 
@@ -69,7 +101,7 @@ class FactorManager:
     def __init__(self, data_gen, replicate_num, individual_pop_size, 
                  original_ind_success_rate, num_room_multiplier, 
                  room_request_ratio_threshold, price_multiplier,
-                 upgrade_fee_multiplier, padding_rate, batch_size):
+                 upgrade_fee_gap_multiplier, padding_rate, batch_size):
 
         # register attributes that are not factors.
         self.data_gen = data_gen
@@ -82,7 +114,7 @@ class FactorManager:
         self.num_room_multiplier = num_room_multiplier
         self.room_request_ratio_threshold = room_request_ratio_threshold
         self.price_multiplier = price_multiplier
-        self.upgrade_fee_multiplier = upgrade_fee_multiplier
+        self.upgrade_fee_gap_multiplier = upgrade_fee_gap_multiplier
         self.padding_rate = padding_rate
         self.batch_size = batch_size
 
@@ -94,7 +126,7 @@ class FactorManager:
                 upgrade_fee = self.data_gen.generate_agent_order(
                     self.room_request_ratio_threshold, avg_stay_duration, 
                     avg_num_room, self.padding_rate, room_rate, 
-                    self.price_multiplier, self.upgrade_fee_multiplier, 
+                    self.price_multiplier, self.upgrade_fee_gap_multiplier, 
                     self.batch_size
                 )
             save(agent_order_price, "agent_order_price", i, scenario)
@@ -134,7 +166,7 @@ class DataManager:
     def __init__(self, replicate_num, time_span_len, capacity, individual_price, 
                  individual_pop_size, week_rate, weekend_rate,
                  num_room_multiplier, room_request_ratio_threshold, 
-                 price_multiplier, upgrade_fee_multiplier, 
+                 price_multiplier, upgrade_fee_gap_multiplier, 
                  padding_rate, batch_size) -> None:
 
         # TODO FEW flexibility in individual success rate.
@@ -150,7 +182,7 @@ class DataManager:
             ), replicate_num, individual_pop_size,
             self.original_ind_success_rate, num_room_multiplier,
             room_request_ratio_threshold, price_multiplier, 
-            upgrade_fee_multiplier, padding_rate, batch_size
+            upgrade_fee_gap_multiplier, padding_rate, batch_size
         )
         self.factor_manager = factor_manager
         self.scenarios = {}
@@ -183,7 +215,7 @@ if __name__ == "__main__":
     data_manager = DataManager(REPLICATE_NUM, TIME_SPAN_LEN, CAPACITY, 
         INDIVIDUAL_PRICE, INDIVIDUAL_POP_SIZE, WEEK_RATE, WEEKEND_RATE, 
         NUM_ROOM_MULTIPLIER, ROOM_REQUEST_RATIO_THRESHOLD, PRICE_MULTIPLIER, 
-        UPGRADE_FEE_MULTIPLIER, PADDING_RATE, BATCH_SIZE,
+        UPGRADE_FEE_GAP_MULTIPLIER, PADDING_RATE, BATCH_SIZE,
     )
 
     data_manager.simulate(IND_DEMAND_MUL_SET, STAY_MUL_SET, ROOM_RATE_SET)

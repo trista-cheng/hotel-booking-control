@@ -53,7 +53,7 @@ class DataGenerator:
                              avg_stay_duration: int, avg_num_room: np.array, 
                              padding_rate: float, room_rate: np.array, 
                              price_multiplier: float,
-                             upgrade_fee_multiplier: float, batch_size: int):
+                             upgrade_fee_gap_multiplier: float, batch_size: int):
         # TODO price and upgrade fee and padding are less flexible and variety, 
         # static to multiplier.
 
@@ -164,8 +164,11 @@ class DataGenerator:
                 break
             
         # 2D array
-        upgrade_fee = -(self.individual_price.reshape(-1, 1) -
-                    self.individual_price) * upgrade_fee_multiplier
+        upgrade_diff = -(self.individual_price.reshape((-1, 1)) -
+                         self.individual_price) 
+        upgrade_fee = (np.triu(upgrade_diff)*(1 - upgrade_fee_gap_multiplier) +
+                       np.tril(upgrade_diff)*(1 + upgrade_fee_gap_multiplier))
+
 
         return (agent_order_price_pool, agent_order_room_quantity_pool, 
                 agent_order_stay_pool, upgrade_fee)
