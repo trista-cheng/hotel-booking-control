@@ -44,8 +44,11 @@ class JSONDataReader:
         return (agent_order_set, time_span, agent_order_price,
                 agent_order_room_quantity, agent_order_stay)
 
-    def collect_hotel_info(self, instance_id):
+    def collect_hotel_info(self, upgrade_rule: str):
         """
+        Parameters
+        -----------
+        upgrade_rule: `up`, `down` or `both`
         Returns
         -------
         room_type_set : list
@@ -64,14 +67,27 @@ class JSONDataReader:
             upgrade_fee = json.load(f)
 
         room_type_set = list(room_capacity.keys())
-        upgrade_levels = {
+        up_levels = {
             i: [j for j in room_type_set if int(j) > int(i)]
             for i in room_type_set
         }
-        downgrade_levels = {
+        down_levels = {
             i: [j for j in room_type_set if int(j) < int(i)]
             for i in room_type_set
         }
+        if upgrade_rule == "up":
+            upgrade_levels = up_levels
+            downgrade_levels = down_levels
+        elif upgrade_rule == "down":
+            upgrade_levels = down_levels
+            downgrade_levels = up_levels
+        elif upgrade_rule == "both":
+            upgrade_levels = {
+                i: [j for j in room_type_set if int(j) != int(i)]
+                for i in room_type_set
+            }
+            downgrade_levels = upgrade_levels
+        
         return (room_type_set, upgrade_levels, downgrade_levels, room_capacity,
                 upgrade_fee)
 
@@ -158,10 +174,14 @@ class CSVDataReader:
             join(self.data_root, "individual_demand_prob", 
                  f'{self.scenario["individual"]}.nc')
         )
-        individual_demand_prob = ds.to_dataframe().to_numpy().reshape(
-            [ds.dims[key] for key in ds.dims]
-        )
-        return individual_demand_prob, individual_room_price
+        individual_demand_prob = ds.to_array()[0].values
+        # individual_demand_prob = ds.to_dataframe().to_numpy().reshape(
+        #     [ds.dims[key] for key in ds.dims]
+        # )
+        demand_ub = pd.read_csv(
+            join(self.data_root, "demand_ub.csv")
+        ).to_numpy()
+        return individual_demand_prob, individual_room_price, demand_ub
 
 
 # folder = join(DATA_ROOT, scenario)

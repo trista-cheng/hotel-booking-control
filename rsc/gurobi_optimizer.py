@@ -5,11 +5,11 @@ import numpy as np
 from gurobipy import Model, GRB, quicksum
 
 # FIXME class contruct
-def solve(data_reader, instance_id):
+def solve(data_reader, instance_id, upgrade_rule):
     (agent_order_set, time_span, agent_order_price, agent_order_room_quantity,
         agent_order_stay) = data_reader.collect_agent_info(instance_id)
     (room_type_set, upgrade_levels, downgrade_levels, room_capacity, 
-     upgrade_fee) = data_reader.collect_hotel_info(instance_id)
+     upgrade_fee) = data_reader.collect_hotel_info(upgrade_rule)
     individual_demand_pmf, individual_room_price, demand_ub = \
         data_reader.collect_individual_info()
 
@@ -147,9 +147,9 @@ def solve(data_reader, instance_id):
     # TODO outcome id range could be narrower.
     # maybe using itertools would be cleaner
     # or it require B_i parameter to pass 
-    # model.Params.TimeLimit = float('inf')
-    model.Params.TimeLimit = 10
-    # model.Params.MIPGap = 0
+    model.Params.TimeLimit = float('inf')
+    # model.Params.TimeLimit = 10
+    model.Params.MIPGap = 0
     model.optimize()
 
     # def acc_verbose(order_acceptance):

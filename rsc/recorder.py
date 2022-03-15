@@ -22,7 +22,8 @@ logging.basicConfig(filename='log.log',
 logging.warning("Start!")
 
 SOLUTION_DIR = "solution"
-INSTANCE_NUM = 2
+INSTANCE_NUM = 5
+UPGRADE_RULE = "up"
 
 lacks = []
 objs = []
@@ -42,14 +43,18 @@ for agent_factor in scenarios["agent"]:
             data_reader = JSONDataReader(scenario)
             # acceptance: 1 x order
             # upgrade: order x room x room
-            acceptance, upgrade, obj_val, sale = solve(data_reader, instance_id)
-
+            acceptance, upgrade, obj_val, sale = solve(data_reader, instance_id, UPGRADE_RULE)
+            
             test = Validator(scenario, instance_id, acceptance, upgrade, sale)
-            test.validate_shape()
-            test.validate_capacity_obj(obj_val)
+            try:
+                test.validate_shape(rule=UPGRADE_RULE)
+                test.validate_capacity_obj(obj_val)
+            except:
+                continue
 
             output_folder = join(SOLUTION_DIR, agent_factor + ind_factor)
             Path(output_folder).mkdir(exist_ok=True, parents=True)
+            sale.to_csv(join(output_folder, f"{instance_id}_sale.csv"))
             pd.DataFrame(acceptance).to_csv(
                 join(output_folder, f"{instance_id}_acceptance.csv"), 
                 index=False
