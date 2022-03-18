@@ -1,4 +1,5 @@
 import json
+from turtle import up
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -8,7 +9,7 @@ from os.path import join
 from pathlib import Path
 from time import perf_counter
 
-from data_reader import CSVDataReader, JSONDataReader
+from data_reader import JSONDataReader
 from gurobi_optimizer import solve
 from metric import get_reject_room_ratio
 from validator import Validator
@@ -16,14 +17,16 @@ from validator import Validator
 with open("scenarios.json") as f:
     scenarios = json.load(f)
 
-logging.basicConfig(filename='log.log', 
+logging.basicConfig(filename='mid_log.log', 
                     format='%(asctime)s %(levelname)-8s %(message)s',
                     level=logging.WARNING, datefmt='%Y-%m-%d %H:%M:%S')
 logging.warning("Start!")
 
-SOLUTION_DIR = "solution"
-INSTANCE_NUM = 5
 UPGRADE_RULE = "up"
+SOLUTION_DIR = f"mid_solution_{UPGRADE_RULE}"
+INSTANCE_NUM = 5
+DATA_ROOT = "mid_data"
+
 
 lacks = []
 objs = []
@@ -40,17 +43,17 @@ for agent_factor in scenarios["agent"]:
         cal_time = []
         for instance_id in range(INSTANCE_NUM):
             start_time = perf_counter()
-            data_reader = JSONDataReader(scenario)
+            data_reader = JSONDataReader(scenario, data_root=DATA_ROOT)
             # acceptance: 1 x order
             # upgrade: order x room x room
             acceptance, upgrade, obj_val, sale = solve(data_reader, instance_id, UPGRADE_RULE)
             
-            test = Validator(scenario, instance_id, acceptance, upgrade, sale)
-            try:
-                test.validate_shape(rule=UPGRADE_RULE)
-                test.validate_capacity_obj(obj_val)
-            except:
-                continue
+            # test = Validator(scenario, instance_id, acceptance, upgrade, sale)
+            # try:
+            #     test.validate_shape(rule=UPGRADE_RULE)
+            #     test.validate_capacity_obj(obj_val)
+            # except:
+            #     continue
 
             output_folder = join(SOLUTION_DIR, agent_factor + ind_factor)
             Path(output_folder).mkdir(exist_ok=True, parents=True)
@@ -73,11 +76,14 @@ for agent_factor in scenarios["agent"]:
             )
             upgrade_data.to_netcdf(join(output_folder, f"{instance_id}_upgrade.nc"))
             lack_value = get_reject_room_ratio(scenario, instance_id, 
-                                               acceptance)
+                                               acceptance, data_root=DATA_ROOT)
             lack.append(lack_value)
             obj.append(obj_val)
             cal_time.append(perf_counter() - start_time)
             logging.warning(f"{agent_factor}, {ind_factor}, {instance_id}")
+        pd.DataFrame({"time": cal_time, "obj": obj}).to_csv(
+            join(output_folder, "time_obj.csv"), index=False
+        )
         lacks.append(np.mean(lack))
         objs.append(np.mean(obj))
         times.append(np.mean(cal_time))
@@ -86,5 +92,5 @@ result = np.hstack(
     [np.array(objs).reshape((-1, 1)), np.array(lacks).reshape((-1, 1)), np.array(times).reshape((-1, 1))]
 )
 index = pd.MultiIndex.from_tuples(index, names=["stay mul", "high request room", "ind demand mul"])
-pd.DataFrame(result, index=index, columns=["obj", "reject capacity ratio", "time"]).to_csv("result.csv")
+pd.DataFrame(result, index=index, columns=["obj", "reject capacity ratio", "time"]).to_csv(f"avg_result_{UPGRADE_RULE}.csv")
 logging.warning("End!")
