@@ -1,8 +1,8 @@
-
+from data_manager import OUTPUT_ROOT as DATA_ROOT
 from data_reader import CSVDataReader
 
-def get_reject_room_ratio(scenario, instance_id, acceptance):
-    reader = CSVDataReader(scenario)
+def get_reject_room_ratio(scenario, instance_id, acceptance, data_root=DATA_ROOT):
+    reader = CSVDataReader(scenario, data_root=data_root)
     agent_order_price, order_room_quantity, order_stay = \
         reader.collect_agent_info(instance_id)
     capacity, upgrade_fee = reader.collect_hotel_info(instance_id)
