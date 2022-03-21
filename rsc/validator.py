@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from data_reader import CSVDataReader
-
+from data_manager import OUTPUT_ROOT as DATA_ROOT
 
 class ConstraintViolation(Exception):
     def __init__(self, scenario, instance_id, hint=None, *args: object) -> None:
@@ -17,7 +17,7 @@ class ConstraintViolation(Exception):
 
 class Validator:
     def __init__(self, scenario, instance_id: int, acceptance: np.array, 
-                 upgrade: np.array, sale: pd.DataFrame):
+                 upgrade: np.array, sale: pd.DataFrame, data_root=DATA_ROOT):
         """
         Methods
         --------
@@ -29,7 +29,7 @@ class Validator:
         self.instance_id = instance_id
         self.acceptance = acceptance
         self.upgrade = upgrade
-        reader = CSVDataReader(scenario)
+        reader = CSVDataReader(scenario, data_root)
         self.order_price, self.order_room, self.order_stay = \
             reader.collect_agent_info(instance_id)
         self.capacity, self.upgrade_fee = reader.collect_hotel_info(instance_id)

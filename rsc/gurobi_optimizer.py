@@ -204,4 +204,3 @@ def solve(data_reader, instance_id, upgrade_rule):
         [order_acceptance[str(i + 1)].x for i in range(len(agent_order_set))]
     )
     return acc_result, up_result, model.objVal, sale
-    model.close()
