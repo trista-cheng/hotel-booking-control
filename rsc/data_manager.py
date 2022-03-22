@@ -8,64 +8,19 @@ from os.path import join
 
 from data_generator import DataGenerator
 
+OUTPUT_ROOT = "new_data"
 
-OUTPUT_ROOT = "mid_data"
-REPLICATE_NUM = 10
-BATCH_SIZE = 10
-
-# static setting
-TIME_SPAN_LEN = 30
-NUM_ROOM_TYPE = 12
-NUM_ROOM_MULTIPLIER = 0.1
-PRICE_MULTIPLIER = 0.8
-UPGRADE_FEE_GAP_MULTIPLIER = 0.3
-PADDING_RATE = 0.4
-CAPACITY = np.array([
-    200, 180, 170, 150, 130, 100, 90, 80, 75, 50, 
-    30, 20
-])
-INDIVIDUAL_PRICE = np.array([
-    900, 1000, 1200, 1300, 1500, 1800, 2100, 2500, 2700, 2800, 
-    4000, 5000,
-])
-INDIVIDUAL_POP_SIZE = np.array([
-    100, 90, 85, 75, 65, 50, 45, 40, 37, 25, 
-    25, 25
-])
-WEEKEND_RATE = np.array([
-    0.4, 0.35, 0.3, 0.35, 0.3, 0.25, 0.3, 0.2, 0.1, 0.25, 
-    0.15, 0.2
-])
-WEEK_RATE = np.array([
-    0.3, 0.3, 0.2, 0.3, 0.2, 0.2, 0.2, 0.1, 0.05, 0.15, 
-    0.1, 0.15,
-])
-ROOM_REQUEST_RATIO_THRESHOLD = 2  # request quantity for each type must exceed times 
-# of capacity
-
-# factor range
-IND_DEMAND_MUL_SET = (0.5, 1, 2)
-STAY_MUL_SET = (1/4, 1/5, 1/7, 1/9)
-ROOM_RATE_SET = np.array([
-    np.array([
-        0.05, 0.1, 0.2, 0.3, 0.3, 0.4, 0.5, 0.4, 0.3, 0.2, 
-        0.1, 0.05
-    ]),
-    np.array([
-        0.05, 0.05, 0.1, 0.1, 0.2, 0.2, 0.3, 0.3, 0.3, 0.4, 
-        0.4, 0.5
-    ]),
-    np.array([
-        0.5, 0.4, 0.4, 0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1, 
-        0.05, 0.05
-    ]),
-])
-
-
-def save(data: np.array, name: str, instance_id: int, scenario=None):
-    # FIXME scenario 名字修掉
+def save(data: np.array, entity_name: str, factor_level=None, instance_id=None):
     """
-    Not to build folder if `instance_id` is None
+    Parameters
+    ------------
+    data(np.array)
+    entity_name: used to create a folder titled as `enttiy_name`
+    factor_level(str or None): used to create a nested folder to label the 
+        certain factor levels  
+    instance_id: used as file name when the data is under certain factor level
+    
+    Not to build folder if `instance_id` and `factor_level` is None
     """
     if len(data.shape) == 1:
         df = pd.DataFrame(data, columns=["value"])
@@ -76,16 +31,17 @@ def save(data: np.array, name: str, instance_id: int, scenario=None):
         df.index += 1
         content = df.T.to_dict()
 
-    if instance_id != None:
-        Path(join(OUTPUT_ROOT, name, scenario)).mkdir(parents=True, exist_ok=True)
-        df.to_csv(join(OUTPUT_ROOT, name, scenario, f'{instance_id}.csv'), index=False)
-        with open(join(OUTPUT_ROOT, name, scenario, f"{instance_id}.json"), "w",
+    if (instance_id != None) & (factor_level != None):
+        folder = Path(join(OUTPUT_ROOT, entity_name, factor_level)).mkdir(
+            parents=True, exist_ok=True)
+        df.to_csv(join(folder, f'{instance_id}.csv'), index=False)
+        with open(join(folder, f"{instance_id}.json"), "w",
                   encoding='utf-8') as f:
             json.dump(content, f, ensure_ascii=False, indent=4)
     else:
-        Path(join(OUTPUT_ROOT)).mkdir(parents=True, exist_ok=True)
-        df.to_csv(join(OUTPUT_ROOT, f'{name}.csv'), index=False)
-        with open(join(OUTPUT_ROOT, f"{name}.json"), "w",
+        folder = Path(join(OUTPUT_ROOT)).mkdir(parents=True, exist_ok=True)
+        df.to_csv(join(folder, f'{entity_name}.csv'), index=False)
+        with open(join(folder, f"{entity_name}.json"), "w",
                   encoding='utf-8') as f:
             json.dump(content, f, ensure_ascii=False, indent=4)
 

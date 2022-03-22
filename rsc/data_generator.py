@@ -8,7 +8,7 @@ from scipy.stats import binom, bernoulli
 # type required  
 OVERSAMPLE_RATIO = 5
 
-def check_consistant_len(attr_list: list):
+def check_consistent_len(attr_list: list):
     is_valid = True
     length = len(attr_list[0])
     for attr in attr_list[1:]:
@@ -37,7 +37,7 @@ class DataGenerator:
         """
         ## validate
         # check for room type
-        is_valid = check_consistant_len([capacity, individual_price, ])
+        is_valid = check_consistent_len([capacity, individual_price, ])
         if not is_valid:
             raise Exception("Length is not consistant along room type.")
 
