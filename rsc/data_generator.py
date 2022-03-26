@@ -1,7 +1,9 @@
 import numpy as np
 import xarray as xr
+import pandas as pd
 
 from scipy.stats import binom, bernoulli
+from itertools import product
 
 # For the room rate. Since there may be one order without any room requested, 
 # we generate times of batch size instances and filter those with at least one 
@@ -18,8 +20,9 @@ def check_consistent_len(attr_list: list):
     return is_valid
 
 class DataGenerator:
-    def __init__(self, time_span_len: int, capacity: np.array,
-                 individual_price: np.array,) -> None:
+    def __init__(self, time_span_len: int, num_room_type: int, 
+                 capacity: np.array, individual_price: np.array,
+                 upgrade_fee_gap_multiplier: float) -> None:
         """
         Lengths of capacity, individual_price, individual_success_rate,
         individual_pop_size should be the same.
@@ -34,26 +37,45 @@ class DataGenerator:
         time_span_len(int): The total time length.
         capacity(1D array): The capacity of each room type.
         inidividual_price(1D array): The price for each room type.
+        upgrade_fee_gap_multiplier: include upgrade and downgrade.
         """
         ## validate
         # check for room type
-        is_valid = check_consistent_len([capacity, individual_price, ])
+        is_valid = check_consistent_len(
+            [capacity, individual_price]
+        )
         if not is_valid:
             raise Exception("Length is not consistant along room type.")
 
         self.time_span_len = int(time_span_len)
         self.time_span = np.arange(time_span_len)
-        self.num_room_type = len(capacity)
-        self.room_type_set = np.arange(0, len(capacity))
+        self.num_room_type = num_room_type
+        self.room_type_set = np.arange(num_room_type)
         self.capacity = np.array(capacity)
         self.individual_price = np.array(individual_price)
+        self.upgrade_fee_gap_multiplier = upgrade_fee_gap_multiplier
+        # FIXME upgrade fee gap here is somehow nonsense, hotel info may better
 
+    def generate_hotel_info(self):
+        """
+        Returns
+        ---------
+        capacity, individual room price, upgrade fee
+        """
+        # 2D array
+        upgrade_diff = -(self.individual_price.reshape((-1, 1)) -
+                         self.individual_price) 
+        upgrade_fee = (
+            np.triu(upgrade_diff) * (1 - self.upgrade_fee_gap_multiplier) +
+            np.tril(upgrade_diff) * (1 + self.upgrade_fee_gap_multiplier)
+        )
+        return self.capacity, self.individual_price, upgrade_fee
 
     def generate_agent_order(self, room_request_ratio_threshold: float, 
                              avg_stay_duration: int, avg_num_room: np.array, 
                              padding_rate: float, room_rate: np.array, 
-                             price_multiplier: float,
-                             upgrade_fee_gap_multiplier: float, batch_size: int):
+                             price_multiplier: float, batch_size: int, 
+                             avg_cancel_rate: float, **kwargs):
         # TODO price and upgrade fee and padding are less flexible and variety, 
         # static to multiplier.
 
@@ -71,8 +93,18 @@ class DataGenerator:
         room_rate(1D): Average probability to book given type in an order.
         price_multiplier([0, 1]): The price for an agent order is calculated by
             the individual price and multiplier
-        upgrade_fee_mutiplier([0, 1]): Same as price_multiplier.
         batch_size: determine the number orders generated iteratively.
+        avg_cancel_rate: uniform distribution with avg and padding.
+
+        Returns
+        --------
+        agent_order_price
+        agent_order_room_quantity
+        agent_order_stay
+        agent_cancel_dict: dictionary of PMF containing outcome of each order 
+            and the corresponding prob
+        agent_cancel_prob: np.array of probability for each outcome
+        agent_cancel_outcome: np.array(outcome x order) of possible outcomes 
         """
 
         agent_order_stay_pool = np.empty((0, self.time_span_len))
@@ -162,19 +194,42 @@ class DataGenerator:
                                   (self.capacity.sum() * self.time_span_len))
             if room_request_ratio > room_request_ratio_threshold:
                 break
-            
-        # 2D array
-        upgrade_diff = -(self.individual_price.reshape((-1, 1)) -
-                         self.individual_price) 
-        upgrade_fee = (np.triu(upgrade_diff)*(1 - upgrade_fee_gap_multiplier) +
-                       np.tril(upgrade_diff)*(1 + upgrade_fee_gap_multiplier))
-
-
+        cancel_rate_ub = avg_cancel_rate * (1 + padding_rate)
+        cancel_rate_lb = avg_cancel_rate * (1 - padding_rate)
+        rng = np.random.default_rng()
+        num_order = len(agent_order_price_pool)
+        agent_cancel_rate = rng.uniform(low=cancel_rate_lb, high=cancel_rate_ub,
+                                        size=num_order)
+        cancel_outcome_set = product([0, 1], repeat=num_order)
+        # FIXME list all the product results use up memory
+        # cancel_outcome_set = np.array(list(cancel_outcome_set))
+        cancel_outcome_set = np.array([rng.choice([0, 1], num_order), rng.choice([0, 1], num_order)])
+        mask = np.concatenate(
+            [cancel_outcome_set, (1 - cancel_outcome_set)], axis=1
+        )
+        prob = np.concatenate(
+            [
+                agent_cancel_rate * cancel_outcome_set,
+                (1 - agent_cancel_rate) * (1 - cancel_outcome_set)
+            ], 
+            axis=1
+        )
+        agent_cancel_pmf = np.prod(prob, where=mask.astype(bool), axis=1)
+        df = pd.DataFrame(
+            cancel_outcome_set, 
+            columns=[str(o + 1) for o in range(num_order)]
+        )
+        df['prob'] = agent_cancel_pmf
+        df.index += 1
+        df.index = df.index.astype(str)
+        agent_cancel_dict = df.T.to_dict()
         return (agent_order_price_pool, agent_order_room_quantity_pool, 
-                agent_order_stay_pool, upgrade_fee)
+                agent_order_stay_pool, agent_cancel_dict, agent_cancel_pmf, 
+                cancel_outcome_set)
 
     def generate_individual(self, individual_success_rate: np.array,
-                            individual_pop_size: np.array, file_name: str):
+                            individual_pop_size: np.array, 
+                            cancel_rate: np.array, **kwargs):
         """
         Store prob data for numpy compatible use. NO quantity data.
 
@@ -190,7 +245,7 @@ class DataGenerator:
         `"quantity"` & `"prob"`
         demand_ub(1D array): It is same as `individual_pop_size`.
         """
-        # FIXME generate useless prob
+        # TODO generate useless prob
         # For each room type in each period, calculate same range of possible
         # outcome. Some impossible outcomes are still recorded with 0 prob.
         pmf = np.array([
@@ -204,9 +259,31 @@ class DataGenerator:
         # Keep low coupling. For possible realization value for demand quantity, 
         # the possible maximum value is the population value. Do not need to
         # consider possible maximum effective value, which means we should not 
-        # take the capacity into account in PMF calculation.  
-
-        xr.DataArray(pmf).to_netcdf(f"{file_name}.nc")
+        # take the capacity into account in PMF calculation. 
+        right_arr = np.empty((0, 4)) 
+        for cancel in range(int(individual_pop_size.max()) + 1):
+            demand = np.arange(cancel, int(individual_pop_size.max()) + 1)
+            prob = binom.pmf(
+                cancel, 
+                demand.reshape((-1, 1)),
+                cancel_rate
+            ).reshape((-1, 1))
+            if len(prob) != len(demand) * self.num_room_type:
+                raise Exception('PROBLEM')
+            # FIXME: something bird
+            room_id = np.resize(self.room_type_set + 1, (len(prob), 1))
+            demand_id = np.repeat(demand, self.num_room_type).reshape((-1, 1))
+            cancel_value = np.resize(cancel, (len(prob), 1))
+            right_arr = np.vstack([
+                right_arr, 
+                np.hstack([room_id, demand_id, cancel_value, prob])
+            ])
+        right_df = pd.DataFrame(
+            right_arr, 
+            columns=["room", "demand", "cancel", "cancel_prob"]
+        )
+        # FIXME: NO numpy work here
+        # xr.DataArray(pmf).to_netcdf(f"{file_name}.nc")
         data = xr.DataArray(
             pmf,
             dims=("room", "time", "outcome"),
@@ -214,8 +291,18 @@ class DataGenerator:
                 "room": np.arange(self.num_room_type) + 1,
                 "time": np.arange(self.time_span_len) + 1,
                 "outcome": np.arange(pmf.shape[2]) + 1,
-                "quantity": ("outcome", np.arange(pmf.shape[2]))
+                "demand": ("outcome", np.arange(pmf.shape[2]))
             }
         )
-        pmf_dict = data.to_dataframe(name="prob").T.to_dict()
+        left_df = data.to_dataframe(name="demand_prob").reset_index()
+        left_df = left_df.drop(columns=['outcome'])
+        df = left_df.merge(right_df, how="left", left_on=["room", "demand"],
+                           right_on=["room", "demand"])
+        df['prob'] = df['demand_prob'] * df['cancel_prob']
+        df = df[['room', 'time', 'demand', 'cancel', 'prob']]
+        df = df.sort_values(by=["room", "time", "demand", "cancel"])
+        two_index_group = df.groupby(['room', 'time'])
+        df['outcome'] = two_index_group.cumcount() + 1
+        df = df.set_index(['room', 'time', 'outcome'])
+        pmf_dict = df.T.to_dict()
         return pmf_dict, individual_pop_size
