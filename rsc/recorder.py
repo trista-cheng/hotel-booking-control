@@ -23,7 +23,7 @@ logging.basicConfig(filename='mid_log.log',
 logging.warning("Start!")
 
 UPGRADE_RULE = "up"
-SOLUTION_DIR = f"mid_solution_{UPGRADE_RULE}"
+SOLUTION_DIR = f"new_solution_{UPGRADE_RULE}"
 INSTANCE_NUM = 5
 DATA_ROOT = "mid_data"
 
