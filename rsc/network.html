@@ -1,0 +1,108 @@
+<html>
+<head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.16.1/vis.css" type="text/css" />
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.16.1/vis-network.min.js"> </script>
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+
+<style type="text/css">
+
+        #mynetwork {
+            width: 800px;
+            height: 800px;
+            background-color: #ffffff;
+            border: 1px solid lightgray;
+            position: relative;
+            float: left;
+        }
+
+        
+
+        
+
+        
+</style>
+
+</head>
+
+<body>
+<div id = "mynetwork"></div>
+
+
+<script type="text/javascript">
+
+    // initialize global variables.
+    var edges;
+    var nodes;
+    var network; 
+    var container;
+    var options, data;
+
+    
+    // This method is responsible for drawing the graph, returns the drawn network
+    function drawGraph() {
+        var container = document.getElementById('mynetwork');
+        
+        
+
+        // parsing and collecting nodes and edges from the python
+        nodes = new vis.DataSet([{"id": "Room 1", "label": "Room 1", "shape": "dot", "title": "Room 1", "value": 0.04189125183890457}, {"id": "Room 2", "label": "Room 2", "shape": "dot", "title": "Room 2", "value": 0.012503325753970946}, {"id": "Room 3", "label": "Room 3", "shape": "dot", "title": "Room 3", "value": 0.01211102727334178}, {"id": "Room 4", "label": "Room 4", "shape": "dot", "title": "Room 4", "value": 0.013452310139777365}, {"id": "Room 5", "label": "Room 5", "shape": "dot", "title": "Room 5", "value": 0.017251017337170542}, {"id": "Room 6", "label": "Room 6", "shape": "dot", "title": "Room 6", "value": 0.020995336232807145}]);
+        edges = new vis.DataSet([{"from": "Room 1", "title": 0.0025745011399632787, "to": "Room 2", "value": 0.0025745011399632787}, {"from": "Room 1", "title": 0.006623126517625388, "to": "Room 3", "value": 0.006623126517625388}, {"from": "Room 1", "title": 0.007422011917280057, "to": "Room 4", "value": 0.007422011917280057}, {"from": "Room 1", "title": 0.010347514414835595, "to": "Room 5", "value": 0.010347514414835595}, {"from": "Room 1", "title": 0.013529765484064942, "to": "Room 6", "value": 0.013529765484064942}, {"from": "Room 2", "title": 0.0014881907207151936, "to": "Room 3", "value": 0.0014881907207151936}, {"from": "Room 2", "title": 0.0018380442816726891, "to": "Room 4", "value": 0.0018380442816726891}, {"from": "Room 2", "title": 0.0024406890762602024, "to": "Room 5", "value": 0.0024406890762602024}, {"from": "Room 2", "title": 0.00259551747218648, "to": "Room 6", "value": 0.00259551747218648}, {"from": "Room 3", "title": 0.0005664675363026755, "to": "Room 4", "value": 0.0005664675363026755}, {"from": "Room 3", "title": 0.0007817034060386313, "to": "Room 5", "value": 0.0007817034060386313}, {"from": "Room 3", "title": 0.0009611961741205982, "to": "Room 6", "value": 0.0009611961741205982}, {"from": "Room 4", "title": 0.0007271244268051286, "to": "Room 5", "value": 0.0007271244268051286}, {"from": "Room 4", "title": 0.0010260871790279038, "to": "Room 6", "value": 0.0010260871790279038}, {"from": "Room 5", "title": 0.0009624531441191687, "to": "Room 6", "value": 0.0009624531441191687}]);
+
+        // adding nodes and edges to the graph
+        data = {nodes: nodes, edges: edges};
+
+        var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": false,
+            "type": "continuous"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+        
+        
+
+        
+
+        network = new vis.Network(container, data, options);
+	 
+        
+
+
+        
+
+        return network;
+
+    }
+
+    drawGraph();
+
+</script>
+</body>
+</html>
