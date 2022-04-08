@@ -1,8 +1,16 @@
-import time
 import pandas as pd
 import numpy as np
 
 from gurobipy import Model, GRB, quicksum
+from itertools import product
+
+def id_to_val(id):
+    """
+    This is only for individual demand and cancel.
+    """
+    # since id starts from 1
+    # FIXME check quantity is larger than id by 1
+    return int(id) - 1
 
 # FIXME class contruct
 def solve(data_reader, instance_id, upgrade_rule):
@@ -13,38 +21,38 @@ def solve(data_reader, instance_id, upgrade_rule):
      upgrade_fee) = data_reader.collect_hotel_info(upgrade_rule)
     (individual_demand_pmf, individual_room_price, demand_ub,
      individual_cancel_rate) = data_reader.collect_individual_info()
-
+    # maybe use itertools would be more clean
     upgrade_indice = [
         (k, i, j)
         for k in agent_order_set
         for i in agent_order_room_quantity[k]
         for j in upgrade_levels[i]
     ]
-    demand_indice = [
-        (room_type, t, str(outcome_id))
+    ind_realization_indice = [
+        (room_type, t, demand_id, cancel_id)
         for room_type in room_type_set
         for t in time_span
-        for outcome_id in range(1, demand_ub[room_type] + 2)
+        for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
+        for cancel_id in (np.arange(int(demand_id)) + 1).astype(str)
     ]
-    # Set population size as UB of maximum possible value B_i
-    # TODO outcome id range could be narrower.
-    # range(
-    #   1,
-    #   np.min([
-    #     INDIVIDUAL_POP_SIZE[int(room_type) - 1],
-    #     room_capacity[room_type]
-    #   ]) + 2
-    # )
-    # maybe use itertools would be more clean
-    # or it require B_i parameter to pass
+    room_time_indice = product([room_type_set, time_span])
+    # creating 2**num_order by numpy would exceed memory
+    # lazy and add variables accordingly
+    agent_cancel_outcome = product([0, 1], repeat=len(agent_order_set))
+
     model = Model("hotel_booking")
     order_acceptance = model.addVars(agent_order_set, vtype=GRB.BINARY,
                                      name=f'Order acceptance')
     upgrade_amount = model.addVars(upgrade_indice, vtype=GRB.INTEGER,
                                    name=f'upgrade amount')
-    effective_sale_for_individual = model.addVars(demand_indice,
+    effective_sale_for_individual = model.addVars(ind_realization_indice,
                                                   vtype=GRB.INTEGER,
                                                   name=f'Sale for individuals')
+    capacity_reservation = model.addVars(
+        room_time_indice,
+        vtype=GRB.INTEGER,
+        name='Capacity reserved for individual'
+    )
 
     # no indirect upgrades
     model.addConstrs(
@@ -59,65 +67,40 @@ def solve(data_reader, instance_id, upgrade_rule):
         name="Direct upgrades"
     )
 
-    # capacity constraint
+    ## individual
+    # define effective and realized sale
     model.addConstrs(
         (
             quicksum(
-                agent_order_stay[order_id][t] *
-                agent_order_room_quantity[order_id][room_type] *
-                order_acceptance[order_id] for order_id in agent_order_set
-            ) -
-            quicksum(
-                agent_order_stay[order_id][t] *
-                upgrade_amount[order_id, room_type, up_type]
-                for order_id in agent_order_set
-                for up_type in upgrade_levels[room_type]
-            ) +
-            quicksum(
-                agent_order_stay[order_id][t] *
-                upgrade_amount[order_id, low_type, room_type]
-                for order_id in agent_order_set
-                for low_type in downgrade_levels[room_type]
+                effective_sale_for_individual[
+                    room_type, t, demand_id, cancel_id
+                ] <= id_to_val(demand_id) - id_to_val(cancel_id)
             )
-            <= room_capacity[room_type]
-            for t in time_span for room_type in room_type_set
+            for room_type, t, demand_id, cancel_id in ind_realization_indice
         ),
-        name="Capacity"
-    )
-
-    # define the effective sale for individual
-    model.addConstrs((
-        room_capacity[room_type] -
-        quicksum(
-            agent_order_stay[order_id][t] *
-            agent_order_room_quantity[order_id][room_type] *
-            order_acceptance[order_id] for order_id in agent_order_set
-        ) +
-        quicksum(
-            agent_order_stay[order_id][t] *
-            upgrade_amount[order_id, room_type, up_type]
-            for order_id in agent_order_set
-            for up_type in upgrade_levels[room_type]
-        ) -
-        quicksum(
-            agent_order_stay[order_id][t] *
-            upgrade_amount[order_id, low_type, room_type]
-            for order_id in agent_order_set
-            for low_type in
-                [i for i in room_type_set if room_type in upgrade_levels[i]]
-        )
-        >= effective_sale_for_individual[room_type, t, outcome_id]
-        for room_type, t, outcome_id in demand_indice),
-        name="Individual sales limited by the vacancy"
+        name="individual realization by arrivals"
     )
 
     model.addConstrs(
         (
-            individual_demand_pmf[room_type][t][outcome_id]['quantity'] >=
-            effective_sale_for_individual[room_type, t, outcome_id]
-            for room_type, t, outcome_id in demand_indice
+            quicksum(
+                effective_sale_for_individual[
+                    room_type, t, demand_id, cancel_id
+                ] <= capacity_reservation[room_type, t]
+            )
+            for room_type, t, demand_id, cancel_id in ind_realization_indice
         ),
-        name="Individual sales limited by the realization of demand"
+        name="individual realization by conserved capacity"
+    )
+
+    # compensation_amount
+    for agent_cancel in agent_cancel_outcome:
+        # agent_cacel consists of binaries to represent cancellations of orders
+        tmp_var = model.addVar(vtype=GRB.INTEGER, name='agent_comp')
+    model.addVars(
+        room_time_indice,
+        vtype=GRB.INTEGER,
+        name='Capacity reserved for individual'
     )
 
     model.setObjective(
