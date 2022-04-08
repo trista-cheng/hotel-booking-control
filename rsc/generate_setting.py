@@ -19,7 +19,7 @@ basic_setting = {
     "num_room_type": 6,
     # standard level data
     "capacity": np.array([
-        200, 180, 150, 100, 80, 50, 
+        200, 180, 150, 100, 80, 50,
     ]),
     "individual_price": np.array([
         900, 1300, 1500, 2500, 4000, 5000,
@@ -38,16 +38,16 @@ agent_setting = {
 
 individual_setting = {
     "individual_pop_size": np.array([
-        100, 90, 80, 50, 40, 30, 
+        100, 90, 80, 50, 40, 30,
     ]),
     "weekend_rate": np.array([
-        0.4, 0.35, 0.3, 0.25, 0.2, 0.1, 
+        0.4, 0.35, 0.3, 0.25, 0.2, 0.1,
     ]),
     "week_rate": np.array([
         0.3, 0.3, 0.2, 0.2, 0.1, 0.05,
     ]),
     "cancel_rate": np.array([
-        0.1, 0.08, 0.07, 0.06, 0.05, 0.04, 
+        0.1, 0.08, 0.07, 0.06, 0.05, 0.04,
     ]),
 }
 
@@ -56,7 +56,7 @@ IND_DEMAND_MUL_SET = (0.5, 1, 2)
 STAY_MUL_SET = (1/4, 1/5, 1/7, 1/9)
 ROOM_RATE_SET = np.array([
     np.array([
-        0.05, 0.3, 0.5, 0.3, 0.2, 0.1, 
+        0.05, 0.3, 0.5, 0.3, 0.2, 0.1,
     ]),
     np.array([
         0.05, 0.1, 0.2, 0.3, 0.3, 0.5,
@@ -90,7 +90,7 @@ Path(folder).mkdir(parents=True, exist_ok=True)
 Path(join(folder, "agent")).mkdir(parents=True, exist_ok=True)
 Path(join(folder, "individual")).mkdir(parents=True, exist_ok=True)
 
-with open(join(folder, "base.npy"), 'wb') as f: 
+with open(join(folder, "base.npy"), 'wb') as f:
     np.save(f, basic_setting)
 
 config = configparser.ConfigParser(
@@ -109,12 +109,12 @@ for ind_demand_mul in IND_DEMAND_MUL_SET:
             if not exists(agent_file_path):
                 agent_setting['stay_mul'] = stay_mul
                 agent_setting['room_rate'] = room_rate
-                with open(agent_file_path, 'wb') as f: 
+                with open(agent_file_path, 'wb') as f:
                     np.save(f, agent_setting)
             ind_file_path = join(folder, "individual", ind_name + ".npy")
             if not exists(ind_file_path):
                 individual_setting["ind_demand_mul"] = ind_demand_mul
-                with open(ind_file_path, 'wb') as f: 
+                with open(ind_file_path, 'wb') as f:
                     np.save(f, individual_setting)
             display_name = (
                 f"Stay duration: {stay_mul:.2f}| "
@@ -129,6 +129,8 @@ for ind_demand_mul in IND_DEMAND_MUL_SET:
                 'display_name': display_name,
                 'agent_setting': agent_file_path,
                 "individual_setting": ind_file_path,
+                'agent_factor': agent_name,
+                'individual_factor': ind_name,
             }
             agent_config[agent_name] = {
                 'stay_mul': stay_mul,

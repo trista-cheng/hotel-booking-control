@@ -12,7 +12,7 @@ class JSONDataReader:
         self.scenario = scenario
         self.data_root = data_root
 
-    def collect_agent_info(self, instance_id):
+    def collect_agent_info(self, instance_id, factor_key='agent_factor'):
         """
         Returns
         -------
@@ -21,18 +21,27 @@ class JSONDataReader:
         agent_order_price: dict
         agent_order_room_quantity : dict
         agent_order_stay: dict
+        agent_cancel_rate: dict
         """
         with open(
-            join(self.data_root, "agent_order_price", self.scenario["agent"], f"{instance_id}.json")
+            join(self.data_root, "agent_order_price",
+                 self.scenario[factor_key], f"{instance_id}.json")
         ) as f:
             agent_order_price = json.load(f)
-        with open(join(self.data_root, "agent_order_room_quantity", self.scenario["agent"],
-                       f"{instance_id}.json")) as f:
+        with open(join(self.data_root, "agent_order_room_quantity",
+                       self.scenario[factor_key], f"{instance_id}.json")) as f:
             agent_order_room_quantity = json.load(f)
         with open(
-            join(self.data_root, "agent_order_stay", self.scenario["agent"], f"{instance_id}.json")
+            join(self.data_root, "agent_order_stay", self.scenario[factor_key],
+                 f"{instance_id}.json")
         ) as f:
             agent_order_stay = json.load(f)
+        with open(
+            join(self.data_root, "agent_cancel_rate", self.scenario[factor_key],
+                 f"{instance_id}.json")
+        ) as f:
+            agent_cancel_rate = json.load(f)
+
         time_span = list(set(
             period
             for stay_set in agent_order_stay.values() for period in stay_set
@@ -40,9 +49,9 @@ class JSONDataReader:
         time_span.sort()
         time_span = [str(period) for period in time_span]
         agent_order_set = list(agent_order_price.keys())
-        # time_span is defined by order. 
+        # time_span is defined by order.
         return (agent_order_set, time_span, agent_order_price,
-                agent_order_room_quantity, agent_order_stay)
+                agent_order_room_quantity, agent_order_stay, agent_cancel_rate)
 
     def collect_hotel_info(self, upgrade_rule: str):
         """
@@ -91,30 +100,32 @@ class JSONDataReader:
             empty_levels = {i: []for i in room_type_set}
             upgrade_levels = empty_levels
             downgrade_levels = empty_levels
-        
+
         return (room_type_set, upgrade_levels, downgrade_levels, room_capacity,
                 upgrade_fee)
 
-    def collect_individual_info(self):
+    def collect_individual_info(self, factor_key='individual_factor'):
         """
         Returns
         -------
         individual_demand_pmf : dict
         individual_room_price : dict
+        demand_ub: dict
+        demand_ub: dict
         """
-        with open(
-            join(self.data_root, "individual_room_price.json")
-        ) as f:
+        with open(join(self.data_root, "individual_room_price.json")) as f:
             individual_room_price = json.load(f)
         with open(
-            join(self.data_root, "individual_demand_pmf", f'{self.scenario["individual"]}.json')
+            join(self.data_root, "individual_demand_pmf",
+                 f'{self.scenario[factor_key]}.json')
         ) as f:
             individual_demand_pmf = json.load(f)
-        with open(
-            join(self.data_root, "demand_ub.json")
-        ) as f:
+        with open(join(self.data_root, "demand_ub.json")) as f:
             demand_ub = json.load(f)
-        return individual_demand_pmf, individual_room_price, demand_ub
+        with open(join(self.data_root, "individual_cancel_rate.json")) as f:
+            individual_cancel_rate = json.load(f)
+        return individual_demand_pmf, individual_room_price, demand_ub, \
+               individual_cancel_rate
 
 # FIXME NOT compatible NOW
 class CSVDataReader:
@@ -132,15 +143,15 @@ class CSVDataReader:
         agent_order_stay: 2-D array
         """
         agent_order_price = pd.read_csv(
-            join(self.data_root, "agent_order_price", self.scenario["agent"], 
+            join(self.data_root, "agent_order_price", self.scenario["agent"],
                  f"{instance_id}.csv")
         )['value'].to_numpy()
         agent_order_room_quantity = pd.read_csv(
-            join(self.data_root, "agent_order_room_quantity", 
+            join(self.data_root, "agent_order_room_quantity",
                  self.scenario["agent"], f"{instance_id}.csv")
         ).to_numpy()
         agent_order_stay = pd.read_csv(
-            join(self.data_root, "agent_order_stay", self.scenario["agent"], 
+            join(self.data_root, "agent_order_stay", self.scenario["agent"],
                  f"{instance_id}.csv")
         ).to_numpy()
         return agent_order_price, agent_order_room_quantity, agent_order_stay
@@ -175,7 +186,7 @@ class CSVDataReader:
             join(self.data_root, "individual_room_price.csv")
         )['value'].to_numpy()
         ds = xr.open_dataset(
-            join(self.data_root, "individual_demand_prob", 
+            join(self.data_root, "individual_demand_prob",
                  f'{self.scenario["individual"]}.nc')
         )
         individual_demand_prob = ds.to_array()[0].values
