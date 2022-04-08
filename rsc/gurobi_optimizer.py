@@ -7,11 +7,12 @@ from gurobipy import Model, GRB, quicksum
 # FIXME class contruct
 def solve(data_reader, instance_id, upgrade_rule):
     (agent_order_set, time_span, agent_order_price, agent_order_room_quantity,
-        agent_order_stay) = data_reader.collect_agent_info(instance_id)
-    (room_type_set, upgrade_levels, downgrade_levels, room_capacity, 
+        agent_order_stay, agent_cancel_rate) = \
+            data_reader.collect_agent_info(instance_id)
+    (room_type_set, upgrade_levels, downgrade_levels, room_capacity,
      upgrade_fee) = data_reader.collect_hotel_info(upgrade_rule)
-    individual_demand_pmf, individual_room_price, demand_ub = \
-        data_reader.collect_individual_info()
+    (individual_demand_pmf, individual_room_price, demand_ub,
+     individual_cancel_rate) = data_reader.collect_individual_info()
 
     upgrade_indice = [
         (k, i, j)
@@ -28,9 +29,9 @@ def solve(data_reader, instance_id, upgrade_rule):
     # Set population size as UB of maximum possible value B_i
     # TODO outcome id range could be narrower.
     # range(
-    #   1, 
+    #   1,
     #   np.min([
-    #     INDIVIDUAL_POP_SIZE[int(room_type) - 1], 
+    #     INDIVIDUAL_POP_SIZE[int(room_type) - 1],
     #     room_capacity[room_type]
     #   ]) + 2
     # )
@@ -50,11 +51,11 @@ def solve(data_reader, instance_id, upgrade_rule):
         (
             quicksum(upgrade_amount[order_id, room_type, up_type]
                     for up_type in upgrade_levels[room_type]) <=
-            (agent_order_room_quantity[order_id][room_type] * 
+            (agent_order_room_quantity[order_id][room_type] *
             order_acceptance[order_id])
             for order_id in agent_order_set
             for room_type in agent_order_room_quantity[order_id]
-        ), 
+        ),
         name="Direct upgrades"
     )
 
@@ -138,7 +139,7 @@ def solve(data_reader, instance_id, upgrade_rule):
                 effective_sale_for_individual[room_type, t, str(outcome_id)]
                 for t in time_span
                 for outcome_id in range(1, demand_ub[room_type] + 2)
-            ) 
+            )
             for room_type in room_type_set
         ),
         GRB.MAXIMIZE
@@ -146,7 +147,7 @@ def solve(data_reader, instance_id, upgrade_rule):
     # FIXME DUPLICATE
     # TODO outcome id range could be narrower.
     # maybe using itertools would be cleaner
-    # or it require B_i parameter to pass 
+    # or it require B_i parameter to pass
     model.Params.TimeLimit = float('inf')
     # model.Params.TimeLimit = 10
     model.Params.MIPGap = 0
@@ -191,11 +192,11 @@ def solve(data_reader, instance_id, upgrade_rule):
         up_result[int(indice[0]) -1, int(indice[1]) -1, int(indice[2]) -1] = \
             upgrade_amount[indice].x
     sale = pd.DataFrame.from_dict(
-        model.getAttr('x', effective_sale_for_individual), 
+        model.getAttr('x', effective_sale_for_individual),
         orient="index"
     )
     mul_index = pd.MultiIndex.from_tuples(
-        effective_sale_for_individual.keys(), 
+        effective_sale_for_individual.keys(),
         names=["room", "time", "outcome"]
     )
     sale = sale.reindex(mul_index)
