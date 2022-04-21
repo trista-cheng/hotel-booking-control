@@ -45,6 +45,12 @@ def solve(data_reader, instance_id, upgrade_rule):
         for room_type in room_type_set
         for t in time_span 
     }
+    ind_demand_indice = [
+        (room_type, t, demand_id)
+        for room_type in room_type_set
+        for t in time_span
+        for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
+    ]
     ind_realization_indice = [
         (room_type, t, demand_id, cancel_id)
         for room_type in room_type_set
@@ -61,12 +67,14 @@ def solve(data_reader, instance_id, upgrade_rule):
                                      name=f'Order acceptance')
     upgrade_amount = model.addVars(upgrade_indice, vtype=GRB.CONTINUOUS,
                                    name=f'upgrade amount')
+    individual_reservation = model.addVars(ind_demand_indice,
+                                           vtype=GRB.CONTINUOUS,
+                                           name=f'Sale for individuals')
     individual_realization = model.addVars(ind_realization_indice,
                                            vtype=GRB.CONTINUOUS,
                                            name=f'Sale for individuals')
-    compensation_room_amount = model.addVars(ind_realization_indice, 
-                                             vtype=GRB.CONTINUOUS, lb=0, 
-                                             name='Room amount to compensate')
+    is_valid_withdrawl = model.addVars(ind_realization_indice, vtype=GRB.BINARY,  
+                                       name='Room amount to compensate')
 
     # no indirect upgrades
     model.addConstrs(
@@ -81,48 +89,79 @@ def solve(data_reader, instance_id, upgrade_rule):
         name="Direct upgrades"
     )
 
-    # define individual realization by reservation and cancellation
+    # define individual reservation by demand
     model.addConstrs(
         (
-            individual_realization[
-                room_type, t, demand_id, cancel_id
-            ] == id_to_val(demand_id) - id_to_val(cancel_id)
-            for room_type, t, demand_id, cancel_id in ind_realization_indice
+            individual_reservation[
+                room_type, t, demand_id
+            ] <= id_to_val(demand_id)
+            for room_type, t, demand_id in ind_demand_indice
         ),
-        name="individual realization by reservation and cancellation"
+        name="individual reservation by demand"
     )
-    # compensation_amount
+    # define individual reservation by left vacancy
     model.addConstrs(
         (
-            compensation_room_amount[room_type, t, ind_demand_id, 
-                                     ind_cancel_id] >=
-            - room_capacity[room_type]  
-            + individual_realization[room_type, t, ind_demand_id, ind_cancel_id]
-            + quicksum(
+            individual_reservation[
+                room_type, t, demand_id
+            ] <= room_capacity[room_type] 
+            - quicksum(
                 agent_order_stay[order_id][t] * 
                 agent_order_room_quantity[order_id][room_type] *
                 order_acceptance[order_id]
                 for order_id in agent_order_set
             )
-            - quicksum(
+            + quicksum(
                 agent_order_stay[order_id][t] * 
                 upgrade_amount[order_id, room_type, up_type] 
                 for order_id in agent_order_set
                 for up_type in upgrade_levels[room_type] 
             )
-            + quicksum(
+            - quicksum(
                 agent_order_stay[order_id][t] * 
                 upgrade_amount[order_id, original_type, room_type]
                 for order_id in agent_order_set
                 for original_type in downgrade_levels[room_type] 
             )
-            for room_type, t, ind_demand_id, ind_cancel_id in 
-            ind_realization_indice
+            for room_type, t, demand_id in ind_demand_indice
         ),
-        name="number of rooms for compensation"
+        name="individual reservation by demand"
     )
+    # verify the cancellation is valid
+    model.addConstrs(
+        (
+            (is_valid_withdrawl[room_type, t, demand_id, cancel_id] - 1) * 
+            max(id_to_val(demand_id), room_capacity[room_type]) <=
+            individual_reservation[room_type, t, demand_id] 
+            - id_to_val(cancel_id)
+            for room_type, t, demand_id, cancel_id in ind_realization_indice
+        ),
+        name='cancellation verification'
+    )
+    # set invalid individual realization to zero
+    model.addConstrs(
+        (
+            individual_realization[room_type, t, demand_id, cancel_id] <= 
+            is_valid_withdrawl[room_type, t, demand_id, cancel_id] * 
+            max(id_to_val(demand_id), room_capacity[room_type])
+            for room_type, t, demand_id, cancel_id in ind_realization_indice
+        ),
+        name='individual realization filter'
+    ) 
+    # limit valid individual realization by reservation and withdrawl
+    model.addConstrs(
+        (
+            individual_realization[room_type, t, demand_id, cancel_id] <= 
+            individual_reservation[room_type, t, demand_id] 
+            - id_to_val(cancel_id)
+            + (1- is_valid_withdrawl[room_type, t, demand_id, cancel_id]) * 
+            max(id_to_val(demand_id), room_capacity[room_type])
+            for room_type, t, demand_id, cancel_id in ind_realization_indice
+        ),
+        name='individual realization UB'
+    ) 
 
-
+    # objective function
     model.setObjective(
         quicksum(
             agent_order_price[order_id] * order_acceptance[order_id]
@@ -144,14 +183,10 @@ def solve(data_reader, instance_id, upgrade_rule):
             individual_demand_pmf[room_type][t][demand_id]['prob'] *
             get_ind_cancel_prob(
                 individual_cancel_rate[room_type], 
-                demand_id, 
+                individual_reservation[room_type, t, demand_id], 
                 cancel_id
-            ) * (
-                - compensation_price[room_type][t] * 
-                compensation_room_amount[room_type, t, demand_id, cancel_id] +
-                individual_room_price[room_type] * 
-                individual_realization[room_type, t, demand_id, cancel_id]
-            )
+            ) * individual_realization[room_type, t, demand_id, cancel_id]
+            * individual_room_price[room_type]
             for room_type, t, demand_id, cancel_id in ind_realization_indice
         ),
         GRB.MAXIMIZE
