@@ -3,6 +3,7 @@ import numpy as np
 
 from gurobipy import Model, GRB, quicksum
 from itertools import product
+from scipy.stats import binom
 
 def id_to_val(id):
     """
@@ -12,47 +13,60 @@ def id_to_val(id):
     # FIXME check quantity is larger than id by 1
     return int(id) - 1
 
+def get_ind_cancel_prob(cancel_rate, ind_demand_id, ind_cancel_id):
+    return binom.pmf(int(ind_cancel_id)-1, int(ind_demand_id)-1, cancel_rate)
+
 # FIXME class contruct
 def solve(data_reader, instance_id, upgrade_rule):
     (agent_order_set, time_span, agent_order_price, agent_order_room_quantity,
         agent_order_stay, agent_cancel_rate) = \
             data_reader.collect_agent_info(instance_id)
     (room_type_set, upgrade_levels, downgrade_levels, room_capacity,
-     upgrade_fee) = data_reader.collect_hotel_info(upgrade_rule)
+     upgrade_fee, compensation_price) = \
+        data_reader.collect_hotel_info(upgrade_rule)
     (individual_demand_pmf, individual_room_price, demand_ub,
      individual_cancel_rate) = data_reader.collect_individual_info()
-    # maybe use itertools would be more clean
+
+    ### indice
+    # TODO maybe use itertools would be more clean
     upgrade_indice = [
         (k, i, j)
         for k in agent_order_set
-        for i in agent_order_room_quantity[k]
+        for i in room_type_set
         for j in upgrade_levels[i]
     ]
+    # FIXME rely the relationship between ID and quantity
+    ind_demand_cancel_indice_by_room_time = {
+        (room_type, t): [
+            (demand_id, cancel_id)
+            for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
+            for cancel_id in (np.arange(int(demand_id)) + 1).astype(str)
+        ]
+        for room_type in room_type_set
+        for t in time_span 
+    }
     ind_realization_indice = [
         (room_type, t, demand_id, cancel_id)
         for room_type in room_type_set
         for t in time_span
-        for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
-        for cancel_id in (np.arange(int(demand_id)) + 1).astype(str)
+        for demand_id, cancel_id in 
+        ind_demand_cancel_indice_by_room_time[room_type, t]
     ]
-    room_time_indice = product([room_type_set, time_span])
-    # creating 2**num_order by numpy would exceed memory
-    # lazy and add variables accordingly
-    agent_cancel_outcome = product([0, 1], repeat=len(agent_order_set))
+    # room_time_indice = list(product(room_type_set, time_span))
 
+    ### build model
     model = Model("hotel_booking")
+    ### add variables
     order_acceptance = model.addVars(agent_order_set, vtype=GRB.BINARY,
                                      name=f'Order acceptance')
-    upgrade_amount = model.addVars(upgrade_indice, vtype=GRB.INTEGER,
+    upgrade_amount = model.addVars(upgrade_indice, vtype=GRB.CONTINUOUS,
                                    name=f'upgrade amount')
-    effective_sale_for_individual = model.addVars(ind_realization_indice,
-                                                  vtype=GRB.INTEGER,
-                                                  name=f'Sale for individuals')
-    capacity_reservation = model.addVars(
-        room_time_indice,
-        vtype=GRB.INTEGER,
-        name='Capacity reserved for individual'
-    )
+    individual_realization = model.addVars(ind_realization_indice,
+                                           vtype=GRB.CONTINUOUS,
+                                           name=f'Sale for individuals')
+    compensation_room_amount = model.addVars(ind_realization_indice, 
+                                             vtype=GRB.CONTINUOUS, lb=0, 
+                                             name='Room amount to compensate')
 
     # no indirect upgrades
     model.addConstrs(
@@ -67,63 +81,78 @@ def solve(data_reader, instance_id, upgrade_rule):
         name="Direct upgrades"
     )
 
-    ## individual
-    # define effective and realized sale
+    # define individual realization by reservation and cancellation
     model.addConstrs(
         (
-            quicksum(
-                effective_sale_for_individual[
-                    room_type, t, demand_id, cancel_id
-                ] <= id_to_val(demand_id) - id_to_val(cancel_id)
-            )
+            individual_realization[
+                room_type, t, demand_id, cancel_id
+            ] == id_to_val(demand_id) - id_to_val(cancel_id)
             for room_type, t, demand_id, cancel_id in ind_realization_indice
         ),
-        name="individual realization by arrivals"
+        name="individual realization by reservation and cancellation"
     )
-
-    model.addConstrs(
-        (
-            quicksum(
-                effective_sale_for_individual[
-                    room_type, t, demand_id, cancel_id
-                ] <= capacity_reservation[room_type, t]
-            )
-            for room_type, t, demand_id, cancel_id in ind_realization_indice
-        ),
-        name="individual realization by conserved capacity"
-    )
-
     # compensation_amount
-    for agent_cancel in agent_cancel_outcome:
-        # agent_cacel consists of binaries to represent cancellations of orders
-        tmp_var = model.addVar(vtype=GRB.INTEGER, name='agent_comp')
-    model.addVars(
-        room_time_indice,
-        vtype=GRB.INTEGER,
-        name='Capacity reserved for individual'
+    model.addConstrs(
+        (
+            compensation_room_amount[room_type, t, ind_demand_id, 
+                                     ind_cancel_id] >=
+            - room_capacity[room_type]  
+            + individual_realization[room_type, t, ind_demand_id, ind_cancel_id]
+            + quicksum(
+                agent_order_stay[order_id][t] * 
+                agent_order_room_quantity[order_id][room_type] *
+                order_acceptance[order_id]
+                for order_id in agent_order_set
+            )
+            - quicksum(
+                agent_order_stay[order_id][t] * 
+                upgrade_amount[order_id, room_type, up_type] 
+                for order_id in agent_order_set
+                for up_type in upgrade_levels[room_type] 
+            )
+            + quicksum(
+                agent_order_stay[order_id][t] * 
+                upgrade_amount[order_id, original_type, room_type]
+                for order_id in agent_order_set
+                for original_type in downgrade_levels[room_type] 
+            )
+            for room_type, t, ind_demand_id, ind_cancel_id in 
+            ind_realization_indice
+        ),
+        name="number of rooms for compensation"
     )
+
 
     model.setObjective(
-        quicksum(agent_order_price[order_id] * order_acceptance[order_id]
-                for order_id in agent_order_set) +
         quicksum(
-            agent_order_stay[order_id][t] * quicksum(
-                upgrade_fee[room_type][up_type] *
-                upgrade_amount[order_id, room_type, up_type]
-                for room_type in room_type_set
-                for up_type in upgrade_levels[room_type]
-            )
-            for order_id in agent_order_set for t in time_span
+            agent_order_price[order_id] * order_acceptance[order_id]
+            for order_id in agent_order_set
         ) +
         quicksum(
-            individual_room_price[room_type] *
-            quicksum(
-                individual_demand_pmf[room_type][t][str(outcome_id)]['prob'] *
-                effective_sale_for_individual[room_type, t, str(outcome_id)]
-                for t in time_span
-                for outcome_id in range(1, demand_ub[room_type] + 2)
+            agent_order_stay[order_id][t] * (
+                quicksum(
+                    upgrade_fee[room_type][up_type] * 
+                    upgrade_amount[order_id, room_type, up_type]
+                    for room_type in room_type_set
+                    for up_type in upgrade_levels[room_type]
+                )
             )
-            for room_type in room_type_set
+            for order_id in agent_order_set
+            for t in time_span
+        ) +
+        quicksum(
+            individual_demand_pmf[room_type][t][demand_id]['prob'] *
+            get_ind_cancel_prob(
+                individual_cancel_rate[room_type], 
+                demand_id, 
+                cancel_id
+            ) * (
+                - compensation_price[room_type][t] * 
+                compensation_room_amount[room_type, t, demand_id, cancel_id] +
+                individual_room_price[room_type] * 
+                individual_realization[room_type, t, demand_id, cancel_id]
+            )
+            for room_type, t, demand_id, cancel_id in ind_realization_indice
         ),
         GRB.MAXIMIZE
     )
@@ -135,12 +164,6 @@ def solve(data_reader, instance_id, upgrade_rule):
     # model.Params.TimeLimit = 10
     model.Params.MIPGap = 0
     model.optimize()
-
-    # def acc_verbose(order_acceptance):
-    #     if order_acceptance == 1:
-    #         return 'Accept'
-    #     else:
-    #         return 'Reject'
 
     # print("Objective value:", model.objVal)
     # print("Runtime: ", model.Runtime)
@@ -175,12 +198,12 @@ def solve(data_reader, instance_id, upgrade_rule):
         up_result[int(indice[0]) -1, int(indice[1]) -1, int(indice[2]) -1] = \
             upgrade_amount[indice].x
     sale = pd.DataFrame.from_dict(
-        model.getAttr('x', effective_sale_for_individual),
+        model.getAttr('x', individual_realization),
         orient="index"
     )
     mul_index = pd.MultiIndex.from_tuples(
-        effective_sale_for_individual.keys(),
-        names=["room", "time", "outcome"]
+        individual_realization.keys(),
+        names=["room", "time", "demand", 'cancel']
     )
     sale = sale.reindex(mul_index)
     sale.columns = ["sale"]
