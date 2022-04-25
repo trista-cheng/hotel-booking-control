@@ -8,7 +8,7 @@ from itertools import product
 # For the room rate. Since there may be one order without any room requested,
 # we generate times of batch size instances and filter those with at least one
 # type required
-OVERSAMPLE_RATIO = 5
+OVERSAMPLE_RATIO = 15
 
 def check_consistent_len(attr_list: list):
     is_valid = True
@@ -22,7 +22,8 @@ def check_consistent_len(attr_list: list):
 class DataGenerator:
     def __init__(self, time_span_len: int, num_room_type: int,
                  capacity: np.array, individual_price: np.array,
-                 upgrade_fee_gap_multiplier: float) -> None:
+                 upgrade_fee_gap_multiplier: float, 
+                 compensation_price: np.array) -> None:
         """
         Lengths of capacity, individual_price, individual_success_rate,
         individual_pop_size should be the same.
@@ -54,7 +55,8 @@ class DataGenerator:
         self.capacity = np.array(capacity)
         self.individual_price = np.array(individual_price)
         self.upgrade_fee_gap_multiplier = upgrade_fee_gap_multiplier
-        # FIXME upgrade fee gap here is somehow nonsense, hotel info may better
+        self.compensation_price = compensation_price
+        # TODO upgrade fee gap here is somehow nonsense, hotel info may better
 
     def generate_hotel_info(self):
         """
@@ -69,7 +71,13 @@ class DataGenerator:
             np.triu(upgrade_diff) * (1 - self.upgrade_fee_gap_multiplier) +
             np.tril(upgrade_diff) * (1 + self.upgrade_fee_gap_multiplier)
         )
-        return self.capacity, self.individual_price, upgrade_fee
+        compensation_price = np.repeat(
+            self.compensation_price.reshape((-1, 1)),
+            self.time_span_len,
+            axis=1
+        ) 
+        return (self.capacity, self.individual_price, upgrade_fee, 
+                compensation_price)
 
     def generate_agent_order(self, room_request_ratio_threshold: float,
                              avg_stay_duration: int, avg_num_room: np.array,

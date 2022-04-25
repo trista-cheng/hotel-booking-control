@@ -1,15 +1,15 @@
-import copy
 import json
 import configparser
-from time import time
 import numpy as np
+import shutil
 import pandas as pd
 
 from pathlib import Path
-from os.path import join
+from os.path import join, exists
 from collections import defaultdict
 
 from data_generator import DataGenerator
+from tools import clean_archive_output
 
 OUTPUT_ROOT = "data"
 
@@ -128,11 +128,12 @@ class DataManager:
     def simulate(self, replicate_num)-> None:
         ## Generate basic hotel info
         data_generator = DataGenerator(**base)
-        capacity, individual_room_price, upgrade_fee = \
+        capacity, individual_room_price, upgrade_fee, compensation_price = \
             data_generator.generate_hotel_info()
         save(capacity, "capacity")
         save(individual_room_price, "individual_room_price")
         save(upgrade_fee, "upgrade_fee")
+        save(compensation_price, 'compensation_price')
 
         factor_manager = FactorManager(data_generator, replicate_num)
         # generate agent
@@ -151,6 +152,7 @@ SETTING_ROOT = 'settings'
 REPLICATE_NUM = 10
 # FIXME replicate num may be in meta.ini
 if __name__ == "__main__":
+    clean_archive_output(['data'])
     with open(join(SETTING_ROOT, 'base.npy'), 'rb') as f:
         base = np.load(f, allow_pickle=True)[()]
     agent_levels = configparser.ConfigParser()

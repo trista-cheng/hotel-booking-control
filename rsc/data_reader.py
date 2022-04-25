@@ -65,6 +65,7 @@ class JSONDataReader:
         downgrade_levels : dict
         room_capacity : dict
         upgrade_fee : dict
+        compensation_price: dict
         """
         with open(
             join(self.data_root, f"capacity.json")
@@ -74,6 +75,8 @@ class JSONDataReader:
             join(self.data_root, "upgrade_fee.json")
         ) as f:
             upgrade_fee = json.load(f)
+        with open(join(self.data_root, "compensation_price.json")) as f:
+            compensation_price = json.load(f)
 
         room_type_set = list(room_capacity.keys())
         up_levels = {
@@ -102,7 +105,7 @@ class JSONDataReader:
             downgrade_levels = empty_levels
 
         return (room_type_set, upgrade_levels, downgrade_levels, room_capacity,
-                upgrade_fee)
+                upgrade_fee, compensation_price)
 
     def collect_individual_info(self, factor_key='individual_factor'):
         """
