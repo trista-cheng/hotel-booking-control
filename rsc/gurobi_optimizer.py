@@ -13,8 +13,15 @@ def id_to_val(id):
     # FIXME check quantity is larger than id by 1
     return int(id) - 1
 
-def get_ind_cancel_prob(cancel_rate, ind_demand_id, ind_cancel_id):
-    return binom.pmf(int(ind_cancel_id)-1, int(ind_demand_id)-1, cancel_rate)
+def get_ind_cancel_prob(cancel_rate, ind_reservation_id, ind_cancel_val):
+    if type(ind_cancel_val) == int:
+        return binom.pmf(
+            ind_cancel_val, 
+            id_to_val(ind_reservation_id), 
+            cancel_rate
+        )
+    else:
+        raise Exception("wrong type")
 
 # FIXME class contruct
 def solve(data_reader, instance_id, upgrade_rule):
@@ -36,29 +43,19 @@ def solve(data_reader, instance_id, upgrade_rule):
         for j in upgrade_levels[i]
     ]
     # FIXME rely the relationship between ID and quantity
-    ind_demand_cancel_indice_by_room_time = {
-        (room_type, t): [
-            (demand_id, cancel_id)
-            for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
-            for cancel_id in (np.arange(int(demand_id)) + 1).astype(str)
-        ]
-        for room_type in room_type_set
-        for t in time_span 
-    }
     ind_demand_indice = [
         (room_type, t, demand_id)
         for room_type in room_type_set
         for t in time_span
         for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
     ]
-    ind_realization_indice = [
-        (room_type, t, demand_id, cancel_id)
+    ind_demand_reservation_indice = [
+        (room_type, t, demand_id, reservation_id)
         for room_type in room_type_set
         for t in time_span
-        for demand_id, cancel_id in 
-        ind_demand_cancel_indice_by_room_time[room_type, t]
+        for demand_id in (np.arange((demand_ub[room_type] + 1)) + 1).astype(str)
+        for reservation_id in (np.arange(int(demand_id)) + 1).astype(str)
     ]
-    # room_time_indice = list(product(room_type_set, time_span))
 
     ### build model
     model = Model("hotel_booking")
@@ -70,11 +67,12 @@ def solve(data_reader, instance_id, upgrade_rule):
     individual_reservation = model.addVars(ind_demand_indice,
                                            vtype=GRB.CONTINUOUS,
                                            name=f'Sale for individuals')
-    individual_realization = model.addVars(ind_realization_indice,
+    individual_realization = model.addVars(ind_demand_reservation_indice,
                                            vtype=GRB.CONTINUOUS,
                                            name=f'Sale for individuals')
-    is_valid_withdrawl = model.addVars(ind_realization_indice, vtype=GRB.BINARY,  
-                                       name='Room amount to compensate')
+    is_valid_reservation = model.addVars(ind_demand_reservation_indice, 
+                                         vtype=GRB.BINARY,  
+                                         name='Room amount to compensate')
 
     # no indirect upgrades
     model.addConstrs(
@@ -88,7 +86,33 @@ def solve(data_reader, instance_id, upgrade_rule):
         ),
         name="Direct upgrades"
     )
-
+    # agent consumption can not exceed capacity
+    model.addConstrs(
+        (
+            quicksum(
+                agent_order_stay[order_id][t] * 
+                agent_order_room_quantity[order_id][room_type] *
+                order_acceptance[order_id]
+                for order_id in agent_order_set
+            )
+            - quicksum(
+                agent_order_stay[order_id][t] * 
+                upgrade_amount[order_id, room_type, up_type] 
+                for order_id in agent_order_set
+                for up_type in upgrade_levels[room_type] 
+            )
+            + quicksum(
+                agent_order_stay[order_id][t] * 
+                upgrade_amount[order_id, original_type, room_type]
+                for order_id in agent_order_set
+                for original_type in downgrade_levels[room_type] 
+            ) <= 
+            room_capacity[room_type]
+            for room_type in room_type_set
+            for t in time_span
+        ),
+        name='agent order capacity'
+    )
     # define individual reservation by demand
     model.addConstrs(
         (
@@ -127,36 +151,54 @@ def solve(data_reader, instance_id, upgrade_rule):
         ),
         name="individual reservation by demand"
     )
-    # verify the cancellation is valid
+    # verify the reservation is valid
     model.addConstrs(
         (
-            (is_valid_withdrawl[room_type, t, demand_id, cancel_id] - 1) * 
-            max(id_to_val(demand_id), room_capacity[room_type]) <=
-            individual_reservation[room_type, t, demand_id] 
-            - id_to_val(cancel_id)
-            for room_type, t, demand_id, cancel_id in ind_realization_indice
+            (1 - is_valid_reservation[room_type, t, demand_id, reservation_id])
+            * id_to_val(demand_id) >=
+            id_to_val(reservation_id) 
+            - individual_reservation[room_type, t, demand_id]
+            for room_type, t, demand_id, reservation_id in 
+            ind_demand_reservation_indice
         ),
-        name='cancellation verification'
+        name='reservation verification overflow'
+    )
+    # verify the reservation is valid
+    model.addConstrs(
+        (
+            (is_valid_reservation[room_type, t, demand_id, reservation_id] - 1)
+            * id_to_val(demand_id) <=
+            id_to_val(reservation_id) 
+            - individual_reservation[room_type, t, demand_id]
+            for room_type, t, demand_id, reservation_id in 
+            ind_demand_reservation_indice
+        ),
+        name='reservation verification underflow'
     )
     # set invalid individual realization to zero
     model.addConstrs(
         (
-            individual_realization[room_type, t, demand_id, cancel_id] <= 
-            is_valid_withdrawl[room_type, t, demand_id, cancel_id] * 
-            max(id_to_val(demand_id), room_capacity[room_type])
-            for room_type, t, demand_id, cancel_id in ind_realization_indice
+            individual_realization[room_type, t, demand_id, reservation_id] <= 
+            is_valid_reservation[room_type, t, demand_id, reservation_id] * 
+            id_to_val(reservation_id) * individual_room_price[room_type]
+            for room_type, t, demand_id, reservation_id in 
+            ind_demand_reservation_indice
         ),
         name='individual realization filter'
     ) 
     # limit valid individual realization by reservation and withdrawl
     model.addConstrs(
         (
-            individual_realization[room_type, t, demand_id, cancel_id] <= 
-            individual_reservation[room_type, t, demand_id] 
-            - id_to_val(cancel_id)
-            + (1- is_valid_withdrawl[room_type, t, demand_id, cancel_id]) * 
-            max(id_to_val(demand_id), room_capacity[room_type])
-            for room_type, t, demand_id, cancel_id in ind_realization_indice
+            individual_realization[room_type, t, demand_id, reservation_id] <= 
+            quicksum(
+                get_ind_cancel_prob(individual_cancel_rate[room_type],
+                                    reservation_id, cancel_val) *
+                (id_to_val(reservation_id) - cancel_val) *
+                individual_room_price[room_type]
+                for cancel_val in range(int(reservation_id))
+            )
+            for room_type, t, demand_id, reservation_id in 
+            ind_demand_reservation_indice
         ),
         name='individual realization UB'
     ) 
@@ -181,13 +223,9 @@ def solve(data_reader, instance_id, upgrade_rule):
         ) +
         quicksum(
             individual_demand_pmf[room_type][t][demand_id]['prob'] *
-            get_ind_cancel_prob(
-                individual_cancel_rate[room_type], 
-                individual_reservation[room_type, t, demand_id], 
-                cancel_id
-            ) * individual_realization[room_type, t, demand_id, cancel_id]
-            * individual_room_price[room_type]
-            for room_type, t, demand_id, cancel_id in ind_realization_indice
+            individual_realization[room_type, t, demand_id, reservation_id]
+            for room_type, t, demand_id, reservation_id in 
+            ind_demand_reservation_indice
         ),
         GRB.MAXIMIZE
     )

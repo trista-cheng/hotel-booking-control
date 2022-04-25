@@ -11,7 +11,7 @@ from time import perf_counter
 
 from data_reader import JSONDataReader
 from gurobi_optimizer import solve
-from metric import get_reject_room_ratio
+# from metric import get_reject_room_ratio
 
 
 logging.basicConfig(filename='log.log',
@@ -22,7 +22,7 @@ logging.warning("Start!")
 
 UPGRADE_RULE = "up"
 SOLUTION_DIR = f"solutions/{UPGRADE_RULE}"
-INSTANCE_NUM = 5
+INSTANCE_NUM = 3
 DATA_ROOT = "data"
 
 # TODO consider to put index information in scenarios.ini
@@ -34,7 +34,7 @@ def get_index(scenario):
 scenarios = configparser.ConfigParser()
 scenarios.read('scenarios.ini')
 
-lacks = []
+# lacks = []
 objs = []
 times = []
 index = []
@@ -42,7 +42,7 @@ for scenario_name in scenarios.sections():
     scenario = scenarios[scenario_name]
     index.append(get_index(scenario))
 
-    lack = []
+    # lack = []
     obj = []
     cal_time = []
     for instance_id in range(INSTANCE_NUM):
@@ -79,22 +79,22 @@ for scenario_name in scenarios.sections():
             coords=coords,
         )
         upgrade_data.to_netcdf(join(output_folder, f"{instance_id}_upgrade.nc"))
-        lack_value = get_reject_room_ratio(scenario, instance_id,
-                                            acceptance, data_root=DATA_ROOT)
-        lack.append(lack_value)
+        # lack_value = get_reject_room_ratio(scenario, instance_id,
+        #                                     acceptance, data_root=DATA_ROOT)
+        # lack.append(lack_value)
         obj.append(obj_val)
         cal_time.append(perf_counter() - start_time)
         logging.warning(f"{scenario_name}, {instance_id}")
     pd.DataFrame({"time": cal_time, "obj": obj}).to_csv(
         join(output_folder, "time_obj.csv"), index=False
     )
-    lacks.append(np.mean(lack))
+    # lacks.append(np.mean(lack))
     objs.append(np.mean(obj))
     times.append(np.mean(cal_time))
 
 result = np.hstack([
     np.array(objs).reshape((-1, 1)),
-    np.array(lacks).reshape((-1, 1)),
+    # np.array(lacks).reshape((-1, 1)),
     np.array(times).reshape((-1, 1))
 ])
 index = pd.MultiIndex.from_tuples(
@@ -104,6 +104,6 @@ index = pd.MultiIndex.from_tuples(
 pd.DataFrame(
     result,
     index=index,
-    columns=["obj", "reject capacity ratio", "time"]
+    columns=["obj", "time"]  # "reject capacity ratio",
 ).to_csv(f"avg_result_{UPGRADE_RULE}.csv")
 logging.warning("End!")
