@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from gurobipy import Model, GRB, quicksum, multidict
+from gurobipy import Model, GRB, quicksum, multidict, LinExpr
 from itertools import product
 from scipy.stats import binom
 
@@ -59,7 +59,7 @@ list(chamber_product_time_index.itertuples(index=False, name=None))
 """
 # by numpy
 def product_index(origin_index, added_index):
-    """_summary_
+    """combine 1 or N-D index with another 1D array
 
     Args:
         origin_index (list): 1 or N-D
@@ -190,6 +190,7 @@ class GurobiManager:
 
         # FIXME agent cancellation exists only if `with_ind_cancel` is True
         if (self.with_ind_cancel & self.with_capacity_reservation):
+            # not used for further model
             ind_realization_indice = [
                 (room_type, t, demand_id, reservation_id, ind_cancel_id)
                 for room_type in self.room_type_set
@@ -209,10 +210,10 @@ class GurobiManager:
             else:
                 self.realization_indice = ind_realization_indice
 
-        if self.with_capacity_reservation:
-            self.room_time_indice = list(
-                product(self.room_type_set, self.time_span)
-            )
+        # if self.with_capacity_reservation:
+        #     self.room_time_indice = list(
+        #         product(self.room_type_set, self.time_span)
+        #     )
 
     def _load_indice(self):
         self._load_basic_indice()
@@ -253,7 +254,8 @@ class GurobiManager:
 
         if self.with_capacity_reservation:
             self.capacity_reservation = self.model.addVars(
-                self.room_time_indice,
+                self.room_type_set,
+                self.time_span,
                 vtype=GRB.CONTINUOUS,
                 name='Capacity reserved for individual'
             )
@@ -275,97 +277,97 @@ class GurobiManager:
 
         ## basic constraint
         # no indirect upgrades
-        self.model.addConstrs(
-            (
-                quicksum(self.upgrade_amount[order_id, room_type, up_type]
-                         for up_type in self.upgrade_levels[room_type]) <=
-                (self.agent_order_room_quantity[order_id][room_type] *
-                 self.order_acceptance[order_id])
-                for order_id in self.agent_order_set
-                for room_type in self.room_type_set
-            ),
-            name="Direct upgrades"
-        )
+        for order_id in self.agent_order_set:
+            for room_type in self.room_type_set:
+                self.model.addConstr(
+                    quicksum(
+                        self.upgrade_amount[order_id, room_type, up_type]
+                        for up_type in self.upgrade_levels[room_type]
+                    ) <= self.agent_order_room_quantity[order_id][room_type] *
+                    self.order_acceptance[order_id],
+                    name="Direct upgrades"
+                )
         # limit individual reservation by demand
-        self.model.addConstrs(
-            (
-                self.individual_reservation[
-                    room_type, t, demand_id
-                ] <= id_to_val(demand_id)
-                for room_type, t, demand_id in self.ind_demand_indice
-            ),
-            name="individual reservation UB by demand"
-        )
+        for room_type, t, demand_id in self.ind_demand_indice:
+            self.model.addConstr(
+                (
+                    self.individual_reservation[
+                        room_type, t, demand_id
+                    ] <= id_to_val(demand_id)
+                ),
+                name="individual reservation UB by demand"
+            )
 
         ## complement constraints
         if not self.with_capacity_reservation:
+            
             # agent consumption can not exceed capacity
-            self.model.addConstrs(
-                (
-                    quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.agent_order_room_quantity[order_id][room_type] *
-                        self.order_acceptance[order_id]
-                        for order_id in self.agent_order_set
+            # det_agent_consump = dict()
+            for room_type in self.room_type_set:
+                type_capacity = self.room_capacity[room_type]
+                for t in self.time_span:
+
+                    consump = LinExpr(0)
+                    for order_id in self.agent_order_set:
+                        # TODO compare creating obj or LinExpr obj
+                        order_stay = self.agent_order_stay[order_id][t]
+                        consump.add(
+                            order_stay *
+                            self.agent_order_room_quantity[order_id][room_type] *
+                            self.order_acceptance[order_id]
+                        )
+                        # TODO compare quicksum, addTerms and add or divide to 
+                        # two parts since order_stay is static
+                        for to_type in self.upgrade_levels[room_type]:
+                            consump.add(
+                                - order_stay * 
+                                self.upgrade_amount[order_id, room_type, to_type]
+                            )
+                        # consump.add(- order_stay *
+                        #     quicksum(
+                        #         self.upgrade_amount[order_id, room_type, to_type]
+                        #         for to_type in self.upgrade_levels[room_type]
+                        #     )
+                        # )
+                        for from_type in self.downgrade_levels[room_type]:
+                            consump.add(
+                                order_stay *
+                                self.upgrade_amount[order_id, from_type, room_type]
+                            )
+
+                    self.model.addConstr(
+                        consump <= type_capacity,
+                        name='Capacity UB on agent orders'
                     )
-                    - quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, room_type, up_type]
-                        for order_id in self.agent_order_set
-                        for up_type in self.upgrade_levels[room_type]
-                    )
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, original_type, room_type]
-                        for order_id in self.agent_order_set
-                        for original_type in self.downgrade_levels[room_type]
-                    ) <=
-                    self.room_capacity[room_type]
-                    for room_type in self.room_type_set
-                    for t in self.time_span
-                ),
-                name='Capacity UB on agent orders'
-            )
+                    # det_agent_consump[(room_type, t)] = consump
+                    for demand_id in self.demand_ub[room_type]:
+                        self.model.addConstr(
+                            self.individual_reservation[
+                                room_type, t, demand_id
+                            ] <= type_capacity - consump,
+                            name="Individual reservation UB by left vacancy"
+                        )
+
             # limit individual reservation by left vacancy
-            self.model.addConstrs(
-                (
-                    self.individual_reservation[
-                        room_type, t, demand_id
-                    ] <=
-                    self.room_capacity[room_type]
-                    - quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.agent_order_room_quantity[order_id][room_type] *
-                        self.order_acceptance[order_id]
-                        for order_id in self.agent_order_set
-                    )
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, room_type, up_type]
-                        for order_id in self.agent_order_set
-                        for up_type in self.upgrade_levels[room_type]
-                    )
-                    - quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, original_type, room_type]
-                        for order_id in self.agent_order_set
-                        for original_type in self.downgrade_levels[room_type]
-                    )
-                    for room_type, t, demand_id in self.ind_demand_indice
-                ),
-                name="Individual reservation UB by left vacancy"
-            )
+            # for room_type, t, demand_id in self.ind_demand_indice:
+            #     self.model.addConstr(
+            #         self.individual_reservation[
+            #             room_type, t, demand_id
+            #         ] <=
+            #         self.room_capacity[room_type] - det_agent_consump[room_type, t],
+            #         name="Individual reservation UB by left vacancy"
+            #     )
 
         else:  # with capacity reservation
-            self.model.addConstrs(
-                (
-                    self.individual_reservation[
-                        room_type, t, demand_id
-                    ] <= self.capacity_reservation[room_type, t]
-                    for room_type, t, demand_id in self.ind_demand_indice
-                ),
-                name="individual reservation UB by conserved capacity"
-            )
+            for room_type, t, demand_id in self.ind_demand_indice:
+                self.model.addConstr(
+                    (
+                        self.individual_reservation[
+                            room_type, t, demand_id
+                        ] <= self.capacity_reservation[room_type, t]
+                    ),
+                    name="individual reservation UB by conserved capacity"
+                )
 
         if self.with_ind_cancel:
             # identity which reservation id is valid and realized

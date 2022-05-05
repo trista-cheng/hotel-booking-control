@@ -65,7 +65,7 @@ for with_capacity_reservation in [False, True]:
                 # acceptance: 1 x order
                 # upgrade: order x room x room
                 optimizer.build_model()
-                optimizer.solve(time_limit=float('inf'), mip_gap=0.01)
+                optimizer.solve(time_limit=float('inf'), mip_gap=0.05)
                 acceptance_df, upgrade_df, ind_valid_df, obj_val = \
                     optimizer.get_result()
 
