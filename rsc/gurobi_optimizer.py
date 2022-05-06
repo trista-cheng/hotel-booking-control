@@ -307,11 +307,11 @@ class GurobiManager:
                 type_capacity = self.room_capacity[room_type]
                 for t in self.time_span:
 
-                    consump = LinExpr(0)
+                    det_agent_consump = LinExpr(0)
                     for order_id in self.agent_order_set:
                         # TODO compare creating obj or LinExpr obj
                         order_stay = self.agent_order_stay[order_id][t]
-                        consump.add(
+                        det_agent_consump.add(
                             order_stay *
                             self.agent_order_room_quantity[order_id][room_type] *
                             self.order_acceptance[order_id]
@@ -319,32 +319,32 @@ class GurobiManager:
                         # TODO compare quicksum, addTerms and add or divide to 
                         # two parts since order_stay is static
                         for to_type in self.upgrade_levels[room_type]:
-                            consump.add(
+                            det_agent_consump.add(
                                 - order_stay * 
                                 self.upgrade_amount[order_id, room_type, to_type]
                             )
-                        # consump.add(- order_stay *
+                        # det_agent_consump.add(- order_stay *
                         #     quicksum(
                         #         self.upgrade_amount[order_id, room_type, to_type]
                         #         for to_type in self.upgrade_levels[room_type]
                         #     )
                         # )
                         for from_type in self.downgrade_levels[room_type]:
-                            consump.add(
+                            det_agent_consump.add(
                                 order_stay *
                                 self.upgrade_amount[order_id, from_type, room_type]
                             )
 
                     self.model.addConstr(
-                        consump <= type_capacity,
+                        det_agent_consump <= type_capacity,
                         name='Capacity UB on agent orders'
                     )
-                    # det_agent_consump[(room_type, t)] = consump
-                    for demand_id in self.demand_ub[room_type]:
+                    # det_agent_consump[(room_type, t)] = det_agent_consump
+                    for demand_id in (np.arange(self.demand_ub[room_type] + 1) + 1).astype(str):
                         self.model.addConstr(
                             self.individual_reservation[
                                 room_type, t, demand_id
-                            ] <= type_capacity - consump,
+                            ] <= type_capacity - det_agent_consump,
                             name="Individual reservation UB by left vacancy"
                         )
 
@@ -371,365 +371,332 @@ class GurobiManager:
 
         if self.with_ind_cancel:
             # identity which reservation id is valid and realized
-            self.model.addConstrs(
-                (
+            for room_type, t, demand_id, reservation_id in \
+                self.ind_demand_reservation_indice:
+                # TODO create an object for variable here may not be good
+                reservation_amount = \
+                    self.individual_reservation[room_type, t, demand_id]
+                self.model.addConstr(
                     (1 - self.is_valid_reservation[room_type, t, demand_id,
-                                                   reservation_id])
-                    * id_to_val(demand_id) >=
-                    id_to_val(reservation_id)
-                    - self.individual_reservation[room_type, t, demand_id]
-                    for room_type, t, demand_id, reservation_id in
-                    self.ind_demand_reservation_indice
-                ),
-                name='reservation identification by overflow filter'
-            )
-            self.model.addConstrs(
-                (
+                                                   reservation_id]) * 
+                    id_to_val(demand_id) >= id_to_val(reservation_id)
+                    - reservation_amount,
+                    name='reservation identification by overflow filter'
+                )
+                self.model.addConstr(
                     (self.is_valid_reservation[room_type, t, demand_id,
-                                               reservation_id]
-                     - 1)
-                    * id_to_val(demand_id) <=
-                    id_to_val(reservation_id)
-                    - self.individual_reservation[room_type, t, demand_id]
-                    for room_type, t, demand_id, reservation_id in
-                    self.ind_demand_reservation_indice
-                ),
-                name='reservation identification by underflow filter'
-            )
+                                               reservation_id] - 1) *
+                    id_to_val(demand_id) <= id_to_val(reservation_id) -
+                    reservation_amount,
+                    name='reservation identification by underflow filter'
+                )
 
         if self.with_agent_cancel:
             # define agent order realization
-            self.model.addConstrs(
-                (
+            for agent_cancel_id, order_id in self.agent_cancel_order_indice:
+                # TODO order realization deplicate
+                self.model.addConstr(
                     self.agent_order_realization[agent_cancel_id, order_id] <=
-                    self.order_acceptance[order_id]
-                    for agent_cancel_id, order_id in
-                    self.agent_cancel_order_indice
-                ),
-                name='order realization limited by acceptance'
-            )
-            self.model.addConstrs(
-                (
+                    self.order_acceptance[order_id],
+                    name='order realization limited by acceptance'
+                )
+                self.model.addConstr(
                     self.agent_order_realization[agent_cancel_id, order_id] <=
-                    1 - self.agent_cancel_comb[agent_cancel_id][order_id]
-                    for agent_cancel_id, order_id in
-                    self.agent_cancel_order_indice
-                ),
-                name='order realization limited by cancellation'
-            )
+                    1 - self.agent_cancel_comb[agent_cancel_id][order_id],
+                    name='order realization limited by cancellation'
+                )
 
         if (self.with_agent_cancel & self.with_ind_cancel &
             self.with_capacity_reservation):
-            self.model.addConstrs(
-                (
+
+            big_constant = quicksum(
+                self.room_capacity[iter_room_id]
+                for iter_room_id in self.room_type_set
+            ) 
+
+            for (room_type, t, ind_demand_id, ind_reservation_id,
+                 ind_cancel_id, agent_cancel_id) in self.realization_indice:
+
+                # TODO consider LinExpr changeVar with capacity constraint
+                sto_agent_consump = LinExpr(0)
+                for order_id in self.agent_order_set:
+                    order_stay = self.agent_order_stay[order_id][t]
+                    if_cancel = self.agent_cancel_comb[agent_cancel_id][order_id]
+                    sto_agent_consump.add(
+                        order_stay *
+                        self.agent_order_room_quantity[order_id][room_type] *
+                        self.agent_order_realization[agent_cancel_id, order_id]
+                    )
+                    for to_type in self.upgrade_levels[room_type]:
+                        sto_agent_consump.add(
+                            - order_stay *
+                            self.upgrade_amount[order_id, room_type, to_type] *
+                            (1 - if_cancel)
+                        )
+                    for from_type in self.downgrade_levels[room_type]:
+                        sto_agent_consump.add(
+                            order_stay *
+                            self.upgrade_amount[order_id, from_type, room_type]
+                            * (1 - if_cancel)
+                        )
+
+                self.model.addConstr(
                     self.compensation_room_amount[room_type, t, ind_demand_id,
                                                   ind_reservation_id,
                                                   ind_cancel_id,
                                                   agent_cancel_id] >=
-                    - self.room_capacity[room_type]
-                    + id_to_val(ind_reservation_id)
-                    - id_to_val(ind_cancel_id)
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.agent_order_room_quantity[order_id][room_type] *
-                        self.agent_order_realization[agent_cancel_id, order_id]
-                        for order_id in self.agent_order_set
-                    )
-                    - quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, room_type, up_type] *
-                        (1 - self.agent_cancel_comb[agent_cancel_id][order_id])
-                        for order_id in self.agent_order_set
-                        for up_type in self.upgrade_levels[room_type]
-                    )
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, original_type, room_type]
-                        * (1 -
-                           self.agent_cancel_comb[agent_cancel_id][order_id])
-                        for order_id in self.agent_order_set
-                        for original_type in self.downgrade_levels[room_type]
-                    )
-                    - (1 - self.is_valid_reservation[room_type, t,
-                                                     ind_demand_id,
-                                                     ind_reservation_id])
-                    * (
-                        quicksum(
-                            self.room_capacity[iter_room_id]
-                            for iter_room_id in self.room_type_set
-                        )
-                        + id_to_val(ind_reservation_id)
-                    )
-                    for (room_type, t, ind_demand_id, ind_reservation_id,
-                         ind_cancel_id, agent_cancel_id) in
-                    self.realization_indice
-                ),
-                name='compensation room amount LB'
-            )
+                    - self.room_capacity[room_type]+ 
+                    id_to_val(ind_reservation_id) - 
+                    id_to_val(ind_cancel_id) + 
+                    sto_agent_consump - 
+                    (1 - self.is_valid_reservation[room_type, t, ind_demand_id,
+                                                   ind_reservation_id]) *
+                    (big_constant + id_to_val(ind_reservation_id)),
+                    name='compensation room amount LB'
+                )
 
         if ((not self.with_agent_cancel) & self.with_ind_cancel &
             self.with_capacity_reservation):
-            self.model.addConstrs(
-                (
+
+            # TODO duplicate with all true case
+            big_constant = quicksum(
+                self.room_capacity[iter_room_id]
+                for iter_room_id in self.room_type_set
+            ) 
+
+            for room_type, t, ind_demand_id, ind_reservation_id, ind_cancel_id \
+                in self.realization_indice:
+
+                # TODO duplicate with no capacity reservation
+                det_agent_consump = LinExpr(0)
+                for order_id in self.agent_order_set:
+                    order_stay = self.agent_order_stay[order_id][t]
+                    det_agent_consump.add(
+                        order_stay *
+                        self.agent_order_room_quantity[order_id][room_type] *
+                        self.order_acceptance[order_id]
+                    )
+                    for to_type in self.upgrade_levels[room_type]:
+                        det_agent_consump.add(
+                            - order_stay * 
+                            self.upgrade_amount[order_id, room_type, to_type]
+                        )
+                    for from_type in self.downgrade_levels[room_type]:
+                        det_agent_consump.add(
+                            order_stay *
+                            self.upgrade_amount[order_id, from_type, room_type]
+                        )
+
+                self.model.addConstr(
                     self.compensation_room_amount[room_type, t, ind_demand_id,
                                                   ind_reservation_id,
                                                   ind_cancel_id] >=
                     - self.room_capacity[room_type]
                     + id_to_val(ind_reservation_id)
                     - id_to_val(ind_cancel_id)
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.agent_order_room_quantity[order_id][room_type] *
-                        self.order_acceptance[order_id]
-                        for order_id in self.agent_order_set
-                    )
-                    - quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, room_type, up_type] 
-                        for order_id in self.agent_order_set
-                        for up_type in self.upgrade_levels[room_type]
-                    )
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] *
-                        self.upgrade_amount[order_id, original_type, room_type]
-                        for order_id in self.agent_order_set
-                        for original_type in self.downgrade_levels[room_type]
-                    )
+                    + det_agent_consump
                     - (1 - self.is_valid_reservation[room_type, t,
                                                      ind_demand_id,
                                                      ind_reservation_id])
-                    * (
-                        quicksum(
-                            self.room_capacity[iter_room_id]
-                            for iter_room_id in self.room_type_set
-                        )
-                        + id_to_val(ind_reservation_id)
-                    )
-                    for (room_type, t, ind_demand_id, ind_reservation_id,
-                         ind_cancel_id) in
-                    self.realization_indice
-                ),
-                name='compensation room amount LB'
-            )
+                    * (big_constant + id_to_val(ind_reservation_id)),
+                    name='compensation room amount LB'
+                )
 
 
     def _set_objective_func(self):
 
-        if (self.with_ind_cancel & (not self.with_agent_cancel) &
-            (not self.with_capacity_reservation)):
-            self.model.setObjective(
-                quicksum(
+        # FIXME no objective function for no ind cancel
+        # TODO individual profit is duplicate but to reduce the loop, it is 
+        # combined with compensation
+
+        if not self.with_agent_cancel:
+            agent_profit = LinExpr(0)
+            for order_id in self.agent_order_set:
+                agent_profit.add(
                     self.agent_order_price[order_id]
                     * self.order_acceptance[order_id]
-                    for order_id in self.agent_order_set
-                ) +
-                quicksum(
-                    self.agent_order_stay[order_id][t] * (
+                ) 
+                # for t in self.time_span:
+                #     # TODO consider whether to create lInExpr
+                #     # upgrade_fee_tonight = LinExpr(0)
+                #     agent_profit.add(
+                #         self.agent_order_stay[order_id][t] *
+                #         quicksum(
+                #             self.upgrade_fee[room_type][up_type] *
+                #             self.upgrade_amount[order_id, room_type, up_type]
+                #             for room_type in self.room_type_set
+                #             for up_type in self.upgrade_levels[room_type]
+                #         )
+                #     )
+                # TODO use quicksum instead of for loop as multiplying 
+                agent_profit.add(
+                    quicksum(
+                        self.agent_order_stay[order_id][t]
+                        for t in self.time_span
+                    ) * quicksum(
+                        self.upgrade_fee[room_type][up_type] *
+                        self.upgrade_amount[order_id, room_type, up_type]
+                        for room_type in self.room_type_set
+                        for up_type in self.upgrade_levels[room_type]
+                    )
+                )
+
+        else:
+            agent_profit = LinExpr(0)
+            for agent_cancel_id, order_id in self.agent_cancel_order_indice:
+                agent_profit.add(
+                    get_agent_cancel_prob(
+                        self.agent_cancel_comb[agent_cancel_id],
+                        self.agent_cancel_rate
+                    ) * (
+                        self.agent_order_price[order_id] *
+                        self.agent_order_realization[agent_cancel_id, order_id] + 
                         quicksum(
+                            self.agent_order_stay[order_id][t] 
+                            for t in self.time_span
+                        ) * quicksum(
                             self.upgrade_fee[room_type][up_type] *
-                            self.upgrade_amount[order_id, room_type, up_type]
+                            self.upgrade_amount[order_id, room_type, up_type] *
+                            (1 - self.agent_cancel_comb[agent_cancel_id][order_id])
                             for room_type in self.room_type_set
                             for up_type in self.upgrade_levels[room_type]
                         )
                     )
-                    for order_id in self.agent_order_set
-                    for t in self.time_span
-                ) +
-                quicksum(
-                    self.individual_demand_pmf[room_type][t][demand_id]['prob']
-                    * self.is_valid_reservation[room_type, t, demand_id,
-                                                reservation_id]
-                    * quicksum(
+                )
+
+        if ((not self.with_capacity_reservation) & self.with_ind_cancel):
+            # this part actually duplicates in four models, but since the 
+            # compensation item facilitate almost the same indice, it can not 
+            # be modulized 
+            ind_profit = LinExpr(0)
+            for room_type, t, demand_id, reservation_id in \
+                self.ind_demand_reservation_indice:
+                ind_profit.add(
+                    self.individual_demand_pmf[room_type][t][demand_id]['prob'] * 
+                    self.is_valid_reservation[room_type, t, demand_id,
+                                              reservation_id] * 
+                    quicksum(
                         get_ind_cancel_prob(
                             self.individual_cancel_rate[room_type],
                             reservation_id,
                             cancel_val
-                        )
-                        * (id_to_val(reservation_id) - cancel_val)
-                        * self.individual_room_price[room_type]
+                        ) * 
+                        (id_to_val(reservation_id) - cancel_val) * 
+                        self.individual_room_price[room_type]
                         for cancel_val in range(int(reservation_id))
                     )
-                    for room_type, t, demand_id, reservation_id in
-                    self.ind_demand_reservation_indice
-                ),
+                )
+
+        if (self.with_ind_cancel & (not self.with_agent_cancel) &
+            (not self.with_capacity_reservation)):
+            self.model.setObjective(
+                agent_profit + ind_profit,
                 GRB.MAXIMIZE
             )
 
         if (self.with_ind_cancel & self.with_agent_cancel &
             (not self.with_capacity_reservation)):
             self.model.setObjective(
-                quicksum(
-                    get_agent_cancel_prob(
-                        self.agent_cancel_comb[agent_cancel_id],
-                        self.agent_cancel_rate
-                    )
-                    * (
-                        self.agent_order_price[order_id] *
-                        self.agent_order_realization[agent_cancel_id, order_id]
-                        + quicksum(
-                            self.agent_order_stay[order_id][t] * (
-                                quicksum(
-                                    self.upgrade_fee[room_type][up_type] *
-                                    self.upgrade_amount[order_id, room_type, 
-                                                        up_type] *
-                                    (1 - self.agent_cancel_comb[
-                                        agent_cancel_id][order_id])
-                                    for room_type in self.room_type_set
-                                    for up_type in 
-                                    self.upgrade_levels[room_type]
-                                )
-                            )
-                            for t in self.time_span
-                        )
-                    )
-                    for agent_cancel_id, order_id in 
-                    self.agent_cancel_order_indice
-                ) +
-                quicksum(
-                    self.individual_demand_pmf[room_type][t][demand_id]['prob']
-                    * self.is_valid_reservation[room_type, t, demand_id,
-                                                reservation_id]
-                    * quicksum(
-                        get_ind_cancel_prob(
-                            self.individual_cancel_rate[room_type],
-                            reservation_id,
-                            cancel_val
-                        )
-                        * (id_to_val(reservation_id) - cancel_val)
-                        * self.individual_room_price[room_type]
-                        for cancel_val in range(int(reservation_id))
-                    )
-                    for room_type, t, demand_id, reservation_id in
-                    self.ind_demand_reservation_indice
-                ),
+                agent_profit + ind_profit,
                 GRB.MAXIMIZE
             )
 
         if (self.with_ind_cancel & (not self.with_agent_cancel) &
             self.with_capacity_reservation):
-            self.model.setObjective(
-                quicksum(
-                    self.agent_order_price[order_id] *
-                    self.order_acceptance[order_id]
-                    + quicksum(
-                        self.agent_order_stay[order_id][t] * (
-                            quicksum(
-                                self.upgrade_fee[room_type][up_type] *
-                                self.upgrade_amount[order_id, room_type, 
-                                                    up_type] 
-                                for room_type in self.room_type_set
-                                for up_type in 
-                                self.upgrade_levels[room_type]
-                            )
-                        )
-                        for t in self.time_span
+
+            ind_and_comp = LinExpr(0)
+            for room_type, t, demand_id, reservation_id in \
+                self.ind_demand_reservation_indice:
+
+                ind_demand_prob = self.individual_demand_pmf[room_type][t][demand_id]['prob']
+
+                # TODO try addTerms and add 
+                # TODO try not to iterate both items together, because the 
+                # former item does not iterate with variable but only statics
+                # TODO test if get_prob consume lots of time
+                ind_cancel_prob_list = []
+                for ind_cancel_id in (np.arange(reservation_id) + 1).astype(str):
+                    
+                    ind_cancel_prob = get_ind_cancel_prob(
+                        self.individual_cancel_rate[room_type],
+                        reservation_id,
+                        id_to_val(ind_cancel_id)
                     )
-                    for order_id in self.agent_order_set
-                ) +
-                quicksum(
-                    self.individual_demand_pmf[room_type][t][demand_id]['prob']
-                    * self.is_valid_reservation[room_type, t, demand_id,
-                                                reservation_id]
-                    * quicksum(
-                        get_ind_cancel_prob(
-                            self.individual_cancel_rate[room_type],
-                            reservation_id,
-                            cancel_val
-                        )
+                    ind_cancel_prob_list.append(ind_cancel_prob)
+                
+                    ind_and_comp.add(
+                        - ind_demand_prob * ind_cancel_prob * 
+                        self.compensation_price[room_type][t] *
+                        self.compensation_room_amount[room_type, t, demand_id, 
+                                                      reservation_id, 
+                                                      ind_cancel_id] 
+                    )
+                    # TODO avoid some parameter query keys too often
+
+                # TODO write with expression or var and coef
+                ind_and_comp.add(
+                    ind_demand_prob * 
+                    self.is_valid_reservation[room_type, t, demand_id,
+                                              reservation_id] *
+                    quicksum(
+                        ind_cancel_prob_list[cancel_val]
                         * (id_to_val(reservation_id) - cancel_val)
                         * self.individual_room_price[room_type]
                         for cancel_val in range(int(reservation_id))
                     )
-                    for room_type, t, demand_id, reservation_id in
-                    self.ind_demand_reservation_indice
-                ) -
-                quicksum(
-                    self.individual_demand_pmf[room_type][t][ind_demand_id]
-                                              ['prob']
-                    * get_ind_cancel_prob(
-                        self.individual_cancel_rate[room_type],
-                        ind_reservation_id,
-                        id_to_val(ind_cancel_id)
-                    )
-                    * self.compensation_price[room_type][t] 
-                    * self.compensation_room_amount[room_type, t, ind_demand_id, 
-                                                    ind_reservation_id, 
-                                                    ind_cancel_id]
-                    for (room_type, t, ind_demand_id, ind_reservation_id, 
-                         ind_cancel_id) 
-                    in self.realization_indice
-                ),
+                )
+
+            self.model.setObjective(
+                agent_profit + ind_and_comp,
                 GRB.MAXIMIZE
             )
 
         if (self.with_ind_cancel & self.with_agent_cancel &
             self.with_capacity_reservation):
-            self.model.setObjective(
-                quicksum(
-                    get_agent_cancel_prob(
-                        self.agent_cancel_comb[agent_cancel_id],
-                        self.agent_cancel_rate
+
+            ind_and_comp = LinExpr(0)
+            for room_type, t, demand_id, reservation_id in \
+                self.ind_demand_reservation_indice:
+
+                ind_demand_prob = self.individual_demand_pmf[room_type][t][demand_id]['prob']
+                ind_cancel_prob_list = []
+                for ind_cancel_id in (np.arange(int(reservation_id)) + 1).astype(str):
+                    
+                    ind_cancel_prob = get_ind_cancel_prob(
+                        self.individual_cancel_rate[room_type],
+                        reservation_id,
+                        id_to_val(ind_cancel_id)
                     )
-                    * (
-                        self.agent_order_price[order_id] *
-                        self.agent_order_realization[agent_cancel_id, order_id]
-                        + quicksum(
-                            self.agent_order_stay[order_id][t] * (
-                                quicksum(
-                                    self.upgrade_fee[room_type][up_type] *
-                                    self.upgrade_amount[order_id, room_type, 
-                                                        up_type] *
-                                    (1 - self.agent_cancel_comb[
-                                        agent_cancel_id][order_id])
-                                    for room_type in self.room_type_set
-                                    for up_type in 
-                                    self.upgrade_levels[room_type]
-                                )
-                            )
-                            for t in self.time_span
+                    ind_cancel_prob_list.append(ind_cancel_prob)
+
+                    # TODO calculate for agent cancel is time-consuming
+                    for agent_cancel_id in self.agent_cancel_indice:
+                        ind_and_comp.add(
+                            - ind_demand_prob * ind_cancel_prob * 
+                            get_agent_cancel_prob(
+                                self.agent_cancel_comb[agent_cancel_id],
+                                self.agent_cancel_rate
+                            ) * self.compensation_price[room_type][t] *
+                            self.compensation_room_amount[
+                                room_type, t, demand_id, reservation_id, 
+                                ind_cancel_id, agent_cancel_id
+                            ]
                         )
-                    )
-                    for agent_cancel_id, order_id in 
-                    self.agent_cancel_order_indice
-                ) +
-                quicksum(
-                    self.individual_demand_pmf[room_type][t][demand_id]['prob']
-                    * self.is_valid_reservation[room_type, t, demand_id,
-                                                reservation_id]
-                    * quicksum(
-                        get_ind_cancel_prob(
-                            self.individual_cancel_rate[room_type],
-                            reservation_id,
-                            cancel_val
-                        )
+                    
+                ind_and_comp.add(
+                    ind_demand_prob * 
+                    self.is_valid_reservation[room_type, t, demand_id,
+                                              reservation_id] *
+                    quicksum(
+                        ind_cancel_prob_list[cancel_val]
                         * (id_to_val(reservation_id) - cancel_val)
                         * self.individual_room_price[room_type]
                         for cancel_val in range(int(reservation_id))
                     )
-                    for room_type, t, demand_id, reservation_id in
-                    self.ind_demand_reservation_indice
-                ) -
-                quicksum(
-                    self.individual_demand_pmf[room_type][t][ind_demand_id]
-                                              ['prob']
-                    * get_ind_cancel_prob(
-                        self.individual_cancel_rate[room_type],
-                        ind_reservation_id,
-                        id_to_val(ind_cancel_id)
-                    )
-                    * get_agent_cancel_prob(
-                        self.agent_cancel_comb[agent_cancel_id],
-                        self.agent_cancel_rate
-                    )
-                    * self.compensation_price[room_type][t] 
-                    * self.compensation_room_amount[room_type, t, ind_demand_id, 
-                                                    ind_reservation_id, 
-                                                    ind_cancel_id, 
-                                                    agent_cancel_id]
-                    for (room_type, t, ind_demand_id, ind_reservation_id, 
-                         ind_cancel_id, agent_cancel_id) 
-                    in self.realization_indice
-                ),
+                )
+
+            self.model.setObjective(
+                agent_profit + ind_and_comp,
                 GRB.MAXIMIZE
             )
 
