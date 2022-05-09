@@ -10,7 +10,7 @@ from pathlib import Path
 from time import perf_counter
 
 from data_reader import JSONDataReader
-from gurobi_optimizer import GurobiManager
+from gurobi_optimizer_mix import GurobiManager
 # from metric import get_reject_room_ratio
 
 
@@ -39,8 +39,9 @@ objs = []
 times = []
 index = []
 with_ind_cancel = True
-for with_capacity_reservation in [False, True]:
-    for with_agent_cancel in [False, True]:
+# TODO nested for-loop is birdy~ use class to hide it
+for with_capacity_reservation in [False, True, ]:
+    for with_agent_cancel in [False, True, ]:
         for scenario_name in scenarios.sections():
             scenario = scenarios[scenario_name]
             index.append(
@@ -60,7 +61,8 @@ for with_capacity_reservation in [False, True]:
                     UPGRADE_RULE, 
                     with_capacity_reservation=with_capacity_reservation,
                     with_ind_cancel=with_ind_cancel, 
-                    with_agent_cancel=with_agent_cancel
+                    with_agent_cancel=with_agent_cancel,
+                    set_order_acc=True
                 )
                 # acceptance: 1 x order
                 # upgrade: order x room x room
