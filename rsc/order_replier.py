@@ -17,7 +17,7 @@ class OrderManager:
         )
         for order_pos in range(self.num_order):
             for type_pos in range(self.num_type):
-                agent_order_room_quantity_np[order_pos, type_pos] =\
+                agent_order_room_quantity_np[order_pos, type_pos] = \
                     agent_order_room_quantity[str(order_pos+1)][str(type_pos+1)]
         self.agent_order_room_quantity = agent_order_room_quantity_np
         agent_order_stay_np =  np.zeros((self.num_order, self.time_span_len))
@@ -40,7 +40,8 @@ class OrderManager:
         consump = np.zeros((self.num_type, self.time_span_len))
         step_size = int(depre_rate * self.num_order)
         num_acc = 0
-        sorted_room_order = self.agent_order_room_quantity[rank, :].T
+        sorted_order_room = self.agent_order_room_quantity[rank, :]
+        sorted_room_order = sorted_order_room.T
         sorted_order_time_stay = self.agent_order_stay[rank, :]
         while True:
             if (consump <= capacity).all():
@@ -53,6 +54,7 @@ class OrderManager:
                 num_acc += step_size
                 
             else:
+                step_size = np.min([step_size, num_acc])
                 consump -= np.dot(
                     sorted_room_order[:, num_acc-step_size: num_acc],
                     sorted_order_time_stay[num_acc-step_size: num_acc, :]
@@ -71,6 +73,19 @@ class OrderManager:
             if order_pos in acc_pos_set:
                 order_acceptance[str(order_pos + 1)] = 1
                 order_set.append(str(order_pos + 1))
+        
+        rest_id = rank[num_acc:]
+        rest_req = sorted_order_room[num_acc:, :, np.newaxis] * \
+            sorted_order_time_stay[num_acc: ,np.newaxis, :]
+        left_vac = capacity - np.dot(
+            sorted_room_order[:, :num_acc],
+            sorted_order_time_stay[:num_acc, :]
+        )
+        while True:
+            pass
+        # a.ravel()[:,newaxis]*b.ravel()[newaxis,:]
+        # [np.outer(x[i],y[i]) for i in range(x.shape[0])]
+
 
         # for order_pos in range(self.num_order):
         #     if order_pos in acc_pos_set:
