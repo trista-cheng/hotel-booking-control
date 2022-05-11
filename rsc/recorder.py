@@ -24,6 +24,8 @@ UPGRADE_RULE = "up"
 SOLUTION_DIR = f"solutions/{UPGRADE_RULE}"
 INSTANCE_NUM = 5
 DATA_ROOT = "data"
+SET_ORDER_ACC = False
+MIP_GAP = 0.05
 
 # TODO consider to put index information in scenarios.ini
 def get_index(scenario):
@@ -62,12 +64,12 @@ for with_capacity_reservation in [False, True, ]:
                     with_capacity_reservation=with_capacity_reservation,
                     with_ind_cancel=with_ind_cancel, 
                     with_agent_cancel=with_agent_cancel,
-                    set_order_acc=True
+                    set_order_acc=SET_ORDER_ACC
                 )
                 # acceptance: 1 x order
                 # upgrade: order x room x room
                 optimizer.build_model()
-                optimizer.solve(time_limit=float('inf'), mip_gap=0.05)
+                optimizer.solve(time_limit=float('inf'), mip_gap=MIP_GAP)
                 acceptance_df, upgrade_df, ind_valid_df, obj_val = \
                     optimizer.get_result()
 
@@ -116,7 +118,7 @@ result = np.hstack([
 ])
 index = pd.MultiIndex.from_tuples(
     index,
-    names=["ind cancel", "agent order cancel", "capacity conservation",
+    names=["ind cancel", "agent order cancel", "capacity reservation",
            "stay mul", "high request room", "ind demand mul"]
 )
 pd.DataFrame(

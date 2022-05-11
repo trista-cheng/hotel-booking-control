@@ -19,23 +19,23 @@ clean_archive_output(['settings', 'data'])
 
 basic_setting = {
     # hotel basic info
-    "time_span_len": 4,
-    "num_room_type": 2,
+    "time_span_len": 7,
+    "num_room_type": 4,
     # standard level data
     "capacity": np.array([
-        20, 10,
+        30, 20, 20, 15,
     ]),
     "individual_price": np.array([
-        1500, 4000,
+        1500, 2000, 3000, 4000,
     ]),
-    "upgrade_fee_gap_multiplier": 0.3,
-    "compensation_price": np.array([1500, 4000, ]) * 1.2,
+    "upgrade_fee_gap_multiplier": 0.2,
+    "compensation_price": np.array([1500, 2000, 3000, 4000, ]) * 1.3,
 }
 
 agent_setting = {
     "batch_size": 1,
-    "room_request_ratio_threshold": 1.5,
-    "padding_rate": 0.2,
+    "room_request_ratio_threshold": 1.75,
+    "padding_rate": 0.3,
     "num_room_multiplier": 0.7,
     "price_multiplier": 0.8,
     "avg_cancel_rate": 0.1,
@@ -43,28 +43,28 @@ agent_setting = {
 
 individual_setting = {
     "individual_pop_size": np.array([
-        10, 5,
+        40, 35, 30, 25
     ]),
     "weekend_rate": np.array([
-        0.4, 0.2,
+        0.4, 0.35, 0.3, 0.25,
     ]),
     "week_rate": np.array([
-        0.3, 0.15,
+        0.3, 0.25, 0.2, 0.2,
     ]),
     "cancel_rate": np.array([
-        0.25, 0.1,
+        0.25, 0.2, 0.15, 0.1
     ]),
 }
 
 # factor range
 IND_DEMAND_MUL_SET = (0.5, 1, 2)
-STAY_MUL_SET = (0.8, )
+STAY_MUL_SET = (0.7, )
 ROOM_RATE_SET = np.array([
     np.array([
-        0.4, 0.2,  
+        0.4, 0.3, 0.3, 0.2,  
     ]),
     np.array([
-        0.2, 0.4,
+        0.2, 0.3, 0.3, 0.4,
     ]), 
 ])
 

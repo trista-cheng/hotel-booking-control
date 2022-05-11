@@ -630,7 +630,7 @@ class GurobiManager:
                 # former item does not iterate with variable but only statics
                 # TODO test if get_prob consume lots of time
                 ind_cancel_prob_list = []
-                for ind_cancel_id in (np.arange(reservation_id) + 1).astype(str):
+                for ind_cancel_id in (np.arange(int(reservation_id)) + 1).astype(str):
                     
                     ind_cancel_prob = get_ind_cancel_prob(
                         self.individual_cancel_rate[room_type],
