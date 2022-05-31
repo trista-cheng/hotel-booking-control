@@ -1,7 +1,5 @@
-import json
 import numpy as np
 import pandas as pd
-import xarray as xr
 import logging
 import configparser
 
@@ -9,8 +7,9 @@ from os.path import join
 from pathlib import Path
 from time import perf_counter
 
-from data_reader import JSONDataReader
 from gurobi_optimizer_mix import GurobiManager
+from gurobi_optimizer_relax import GurobiRelaxManager
+from tools import get_exp_ub
 # from metric import get_reject_room_ratio
 
 
@@ -19,13 +18,15 @@ logging.basicConfig(filename='log.log',
                     level=logging.WARNING, datefmt='%Y-%m-%d %H:%M:%S')
 logging.warning("Start!")
 
+# important settings
 
-UPGRADE_RULE = "up"
-SOLUTION_DIR = f"solutions/{UPGRADE_RULE}"
-INSTANCE_NUM = 5
 DATA_ROOT = "data"
+INSTANCE_NUM = 5
+MIP_GAP = 0.1
+UPGRADE_RULE = "up"
 SET_ORDER_ACC = False
-MIP_GAP = 0.05
+RELAX = True
+SOLUTION_DIR = f"solutions/{UPGRADE_RULE}_algo_{SET_ORDER_ACC}_relax_{RELAX}"
 
 # TODO consider to put index information in scenarios.ini
 def get_index(scenario):
@@ -54,24 +55,36 @@ for with_capacity_reservation in [False, True, ]:
             # lack = []
             obj = []
             cal_time = []
+            ub = []
             for instance_id in range(INSTANCE_NUM):
                 start_time = perf_counter()
-                data_reader = JSONDataReader(scenario, data_root=DATA_ROOT)
-                optimizer = GurobiManager(
-                    data_reader, 
-                    instance_id, 
-                    UPGRADE_RULE, 
-                    with_capacity_reservation=with_capacity_reservation,
-                    with_ind_cancel=with_ind_cancel, 
-                    with_agent_cancel=with_agent_cancel,
-                    set_order_acc=SET_ORDER_ACC
-                )
+                if RELAX:
+                    optimizer = GurobiRelaxManager(
+                        scenario,
+                        instance_id,
+                        UPGRADE_RULE,
+                        with_capacity_reservation=with_capacity_reservation,
+                        with_ind_cancel=with_ind_cancel,
+                        with_agent_cancel=with_agent_cancel,
+                        set_order_acc=SET_ORDER_ACC,
+                        relax=RELAX
+                    )
+                else:
+                    optimizer = GurobiManager(
+                        scenario,
+                        instance_id,
+                        UPGRADE_RULE,
+                        with_capacity_reservation=with_capacity_reservation,
+                        with_ind_cancel=with_ind_cancel,
+                        with_agent_cancel=with_agent_cancel,
+                        set_order_acc=SET_ORDER_ACC
+                    )
                 # acceptance: 1 x order
                 # upgrade: order x room x room
                 optimizer.build_model()
                 optimizer.solve(time_limit=float('inf'), mip_gap=MIP_GAP)
-                acceptance_df, upgrade_df, ind_valid_df, obj_val = \
-                    optimizer.get_result()
+                (acceptance_df, upgrade_df, ind_valid_df, comp_df, rev_df,
+                 obj_val) = optimizer.get_result()
 
                 # test = Validator(scenario, instance_id, acceptance, upgrade, sale)
                 # try:
@@ -81,7 +94,7 @@ for with_capacity_reservation in [False, True, ]:
                 #     continue
 
                 output_folder = join(
-                    SOLUTION_DIR, 
+                    SOLUTION_DIR,
                     (f'agent_{int(with_agent_cancel)}'
                      f'_res_{int(with_capacity_reservation)}'),
                     scenario_name
@@ -96,6 +109,12 @@ for with_capacity_reservation in [False, True, ]:
                 ind_valid_df.to_csv(
                     join(output_folder, f"{instance_id}_ind_valid.csv"),
                 )
+                comp_df.to_csv(
+                    join(output_folder, f"{instance_id}_comp.csv"),
+                )
+                rev_df.to_csv(
+                    join(output_folder, f'{instance_id}_rev.csv')
+                )
                 # lack_value = get_reject_room_ratio(scenario, instance_id,
                 #                                     acceptance, data_root=DATA_ROOT)
                 # lack.append(lack_value)
@@ -104,7 +123,13 @@ for with_capacity_reservation in [False, True, ]:
                 logging.warning(f"agent {with_agent_cancel}, "
                                 f"res {with_capacity_reservation} "
                                 f"{scenario_name}, {instance_id}")
-            pd.DataFrame({"time": cal_time, "obj": obj}).to_csv(
+                agent_ub, ind_ub, capacity_value = get_exp_ub(
+                    scenario, instance_id, UPGRADE_RULE, with_agent_cancel
+                )
+                ub.append([agent_ub, ind_ub, capacity_value])
+            scenario_result = pd.DataFrame({"time": cal_time, "obj": obj})
+            scenario_result[['agent_ub', 'ind_ub', 'capacity_value']] = ub
+            scenario_result.to_csv(
                 join(output_folder, "time_obj.csv"), index=False
             )
             # lacks.append(np.mean(lack))
@@ -125,5 +150,5 @@ pd.DataFrame(
     result,
     index=index,
     columns=["obj", "time"]  # "reject capacity ratio",
-).to_csv(f"avg_result_{UPGRADE_RULE}.csv")
+).to_csv(f"avg_result__{UPGRADE_RULE}__algo_{SET_ORDER_ACC}__relax_{RELAX}.csv")
 logging.warning("End!")

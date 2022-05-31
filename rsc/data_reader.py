@@ -137,69 +137,108 @@ class CSVDataReader:
         self.scenario = scenario
         self.data_root = data_root
 
-    def collect_agent_info(self, instance_id):
+    def collect_agent_info(self, instance_id, factor_key='agent_factor'):
         """
         Returns
         -------
-        agent_order_price: 1-D array
-        agent_order_room_quantity : 2-D array
-        agent_order_stay: 2-D array
+        agent_order_set : list
+        time_span : list
+        agent_order_price: list
+        agent_order_room_quantity: 2D array
+        agent_order_stay: 2D array
+        agent_cancel_rate: list
         """
         agent_order_price = pd.read_csv(
-            join(self.data_root, "agent_order_price", self.scenario["agent"],
-                 f"{instance_id}.csv")
-        )['value'].to_numpy()
+            join(self.data_root, "agent_order_price",
+                 self.scenario[factor_key], f"{instance_id}.csv")
+        ).to_numpy().flatten()
         agent_order_room_quantity = pd.read_csv(
             join(self.data_root, "agent_order_room_quantity",
-                 self.scenario["agent"], f"{instance_id}.csv")
+                 self.scenario[factor_key], f"{instance_id}.csv")
         ).to_numpy()
         agent_order_stay = pd.read_csv(
-            join(self.data_root, "agent_order_stay", self.scenario["agent"],
+            join(self.data_root, "agent_order_stay", self.scenario[factor_key],
                  f"{instance_id}.csv")
         ).to_numpy()
-        return agent_order_price, agent_order_room_quantity, agent_order_stay
+        agent_cancel_rate = pd.read_csv(
+            join(self.data_root, "agent_cancel_rate", self.scenario[factor_key],
+                 f"{instance_id}.csv")
+        ).to_numpy().flatten()
 
-    def collect_hotel_info(self, instance_id):
+        time_span = np.arange(agent_order_stay.shape[1])
+        agent_order_set = np.arange(len(agent_order_price))
+        # time_span is defined by order.
+        return (agent_order_set, time_span, agent_order_price,
+                agent_order_room_quantity, agent_order_stay, agent_cancel_rate)
+
+    def collect_hotel_info(self, upgrade_rule: str):
         """
-        Warning
-        --------
-        Upper triangular mask for upgrade is missing.
+        Parameters
+        -----------
+        upgrade_rule: `up`, `down` or `both`
         Returns
         -------
-        room_capacity : 1-D array
-        upgrade_fee : 2-D array
+        room_type_set : 1D array
+        room_capacity : 1D array
+        upgrade_fee : 2D array
+        compensation_price: 2D array
         """
         room_capacity = pd.read_csv(
-            join(self.data_root, "capacity.csv")
-        )['value'].to_numpy()
+            join(self.data_root, f"capacity.csv")
+        ).to_numpy().flatten()
         upgrade_fee = pd.read_csv(
             join(self.data_root, "upgrade_fee.csv")
         ).to_numpy()
+        compensation_price = pd.read_csv(
+            join(self.data_root, "compensation_price.csv")
+        ).to_numpy()
 
-        return (room_capacity, upgrade_fee)
+        room_type_set = np.arange(len(room_capacity))
+        if upgrade_rule == 'up':
+            invalid_msk = np.tril_indices_from(upgrade_fee)
+            upgrade_fee[invalid_msk] = np.nan
+        elif upgrade_rule == 'down':
+            invalid_msk = np.triu_indices_from(upgrade_fee)
+            upgrade_fee[invalid_msk] = np.nan
 
-    def collect_individual_info(self):
+        return (room_type_set, room_capacity, upgrade_fee, compensation_price)
+
+    def collect_individual_info(self, factor_key='individual_factor'):
         """
         Returns
         -------
-        individual_demand_prob : 3-D array
-        individual_room_price : 1-D array
+        ind_demand_prob : 3D numpy (room x time x quant)
+        individual_room_price : 1D array (room)
+        demand_ub: 1D array (room)
+        individual_cancel_rate : 1D array
         """
         individual_room_price = pd.read_csv(
             join(self.data_root, "individual_room_price.csv")
-        )['value'].to_numpy()
-        ds = xr.open_dataset(
-            join(self.data_root, "individual_demand_prob",
-                 f'{self.scenario["individual"]}.nc')
+        ).to_numpy().flatten()
+
+        with open(
+            join(self.data_root, "individual_demand_pmf",
+                 f'{self.scenario[factor_key]}.npy'),
+            'rb'
+        ) as f:
+            individual_demand_pmf = np.load(f, allow_pickle=True)
+        ind_demand_prob = pd.DataFrame.from_dict(
+            individual_demand_pmf[()], orient='index'
+        ).sort_index()
+        # FIXME check the index is int not str, otherwise sort may result in
+        # inconsistancy
+        # FIXME not sure the numpy object is correct
+        ind_demand_prob = ind_demand_prob['prob'].to_numpy().reshape(
+            ind_demand_prob.index.levshape
         )
-        individual_demand_prob = ds.to_array()[0].values
-        # individual_demand_prob = ds.to_dataframe().to_numpy().reshape(
-        #     [ds.dims[key] for key in ds.dims]
-        # )
         demand_ub = pd.read_csv(
             join(self.data_root, "demand_ub.csv")
-        ).to_numpy()
-        return individual_demand_prob, individual_room_price, demand_ub
+        ).to_numpy().flatten()
+        individual_cancel_rate = pd.read_csv(
+            join(self.data_root, "individual_cancel_rate.csv")
+        ).to_numpy().flatten()
+        return (ind_demand_prob, individual_room_price, demand_ub,
+                individual_cancel_rate)
 
 
 # folder = join(DATA_ROOT, scenario)
