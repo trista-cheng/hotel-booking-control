@@ -5,6 +5,8 @@ from gurobipy import Model, GRB, quicksum, multidict, LinExpr
 from itertools import product
 from scipy.stats import binom
 
+from data_reader import JSONDataReader
+
 def id_to_val(id):
     """
     This is only for individual demand and cancel.
@@ -38,9 +40,10 @@ def get_agent_prob(agent_cancel_outcome, agent_cancel_id, agent_cancel_rate):
     return np.prod(prob, where=mask.astype(bool))
 """
 # multiply one by one with order index
-def get_agent_cancel_prob(agent_cancel_outcome: dict, agent_cancel_prob: dict):
+def get_agent_cancel_prob(agent_cancel_outcome: dict, agent_cancel_prob: dict,
+                          agent_order_set):
     prob = 1
-    for order_id in agent_cancel_prob:
+    for order_id in agent_order_set:
         if agent_cancel_outcome[order_id] == 1:
             prob = prob * agent_cancel_prob[order_id]
         else:
@@ -79,21 +82,25 @@ def product_index(origin_index, added_index):
     ])
     return tuple(map(tuple, index))
 
-class GurobiManager:
-    def __init__(self, data_reader, instance_id, upgrade_rule,
-                 with_capacity_reservation=False, with_ind_cancel=False,
-                 with_agent_cancel=False):
+class GurobiRelaxManager:
+    def __init__(self, scenario, instance_id, upgrade_rule,
+                 with_capacity_reservation, with_ind_cancel,
+                 with_agent_cancel, set_order_acc, relax):
         """Create gurobi optimizer object.
 
         Args:
-            data_reader (JSONDataReader): _description_
+            scenario (dict): parameter for DataReader
             instance_id (int): _description_
             upgrade_rule (str): Options are `up`, `down`, and `both`
-            with_capacity_reservation (bool, optional): Control model.
+            with_capacity_reservation (bool): Control model.
             Defaults to False.
-            with_ind_cancel (bool, optional): Control model. Defaults to False.
-            with_agent_cancel (bool, optional): Control model. Defaults to False.
+            with_ind_cancel (bool): Control model. Defaults to False.
+            with_agent_cancel (bool): Control model. Defaults to False.
+            relax (bool): release some binary constraints.
         """
+        if not relax:
+            raise Exception("relax should be always true.")
+        data_reader = JSONDataReader(scenario)
         (
             self.agent_order_set,
             self.time_span,
@@ -119,6 +126,9 @@ class GurobiManager:
         self.with_capacity_reservation = with_capacity_reservation
         self.with_ind_cancel = with_ind_cancel
         self.with_agent_cancel = with_agent_cancel
+        self.set_order_acc = set_order_acc
+        if set_order_acc:
+            raise Exception('No this! This file is only for relax case')
 
     def _get_df(self, variable, col_name:str, index_names:list):
         var_sol = self.model.getAttr('x', variable)
@@ -126,21 +136,11 @@ class GurobiManager:
             index = None
         else:
             index = pd.MultiIndex.from_tuples(var_sol.keys(), names=index_names)
-            
+
         var_df = pd.DataFrame(
             {col_name: var_sol.values()},
             index=index
         )
-        # var_df = pd.DataFrame.from_dict(
-        #     self.model.getAttr('x', variable),
-        #     orient="index"
-        # )
-        # mul_index = pd.MultiIndex.from_tuples(
-        #     variable.keys(),
-        #     names=index_names
-        # )
-        # var_df = var_df.reindex(mul_index)
-        # var_df.columns = [col_name]
         return var_df
 
     def _load_basic_indice(self):
@@ -156,7 +156,7 @@ class GurobiManager:
             (room_type, t, demand_id)
             for room_type in self.room_type_set
             for t in self.time_span
-            for demand_id in
+            for demand_id in \
             (np.arange((self.demand_ub[room_type] + 1)) + 1).astype(str)
         ]
     def _load_complement_indice(self):
@@ -182,9 +182,9 @@ class GurobiManager:
                 (room_type, t, demand_id, reservation_id)
                 for room_type in self.room_type_set
                 for t in self.time_span
-                for demand_id in
+                for demand_id in \
                 (np.arange((self.demand_ub[room_type] + 1)) + 1).astype(str)
-                for reservation_id in
+                for reservation_id in \
                 (np.arange(int(demand_id)) + 1).astype(str)
             ]
 
@@ -195,11 +195,11 @@ class GurobiManager:
                 (room_type, t, demand_id, reservation_id, ind_cancel_id)
                 for room_type in self.room_type_set
                 for t in self.time_span
-                for demand_id in
+                for demand_id in \
                 (np.arange((self.demand_ub[room_type] + 1)) + 1).astype(str)
-                for reservation_id in
+                for reservation_id in \
                 (np.arange(int(demand_id)) + 1).astype(str)
-                for ind_cancel_id in
+                for ind_cancel_id in \
                 (np.arange(int(reservation_id)) + 1).astype(str)
             ]
             if self.with_agent_cancel:
@@ -220,11 +220,14 @@ class GurobiManager:
         self._load_complement_indice()
 
     def _create_basic_variable(self):
-        self.order_acceptance = self.model.addVars(
-            self.agent_order_set,
-            vtype=GRB.BINARY,
-            name=f'Order acceptance'
-        )
+        if not self.set_order_acc:
+            self.order_acceptance = self.model.addVars(
+                self.agent_order_set,
+                vtype=GRB.CONTINUOUS,
+                lb=0,
+                ub=1,
+                name=f'Order acceptance'
+            )
         self.upgrade_amount = self.model.addVars(
             self.upgrade_indice,
             vtype=GRB.CONTINUOUS,
@@ -233,6 +236,7 @@ class GurobiManager:
         self.individual_reservation = self.model.addVars(
             self.ind_demand_indice,
             vtype=GRB.CONTINUOUS,
+            lb=0,
             name=f'Sale for individuals'
         )
 
@@ -242,23 +246,32 @@ class GurobiManager:
             self.is_valid_reservation = self.model.addVars(
                 self.ind_demand_reservation_indice,
                 vtype=GRB.BINARY,
-                name='If indice equals the reservation amount'
+                name='If indice equals the reservation amount',
+                # lb=0,
+                # ub=1
             )
 
         if self.with_agent_cancel:
             self.agent_order_realization = self.model.addVars(
                 self.agent_cancel_order_indice,
-                vtype=GRB.BINARY,
-                name='Realization of agent orders'
+                vtype=GRB.CONTINUOUS,
+                name='Realization of agent orders',
+                lb=0,
+                ub=1,
             )
 
         if self.with_capacity_reservation:
-            self.capacity_reservation = self.model.addVars(
-                self.room_type_set,
-                self.time_span,
-                vtype=GRB.CONTINUOUS,
-                name='Capacity reserved for individual'
-            )
+            # set UB
+            agent_usage_ub = {}
+            for t in self.time_span:
+                agent_usage_ub[t] = quicksum(
+                    self.agent_order_room_quantity[iter_order_id]
+                                                  [iter_room_type] *
+                    self.agent_order_stay[iter_order_id][t]
+                    for iter_order_id in self.agent_order_set
+                    for iter_room_type in self.room_type_set
+                )
+            self.agent_usage_ub = agent_usage_ub
 
         # TODO It covers if `with_agent_cancel` is True and False
         if (self.with_ind_cancel & self.with_capacity_reservation):
@@ -297,10 +310,16 @@ class GurobiManager:
                 ),
                 name="individual reservation UB by demand"
             )
+            # self.model.addConstr(
+            #     self.individual_reservation[room_type, t, demand_id] >=
+            #     id_to_val(demand_id) -
+            #     self.if_individual_underage[room_type, t, demand_id] *
+            #     id_to_val(demand_id)
+            # )
 
         ## complement constraints
         if not self.with_capacity_reservation:
-            
+
             # agent consumption can not exceed capacity
             # det_agent_consump = dict()
             for room_type in self.room_type_set:
@@ -316,11 +335,11 @@ class GurobiManager:
                             self.agent_order_room_quantity[order_id][room_type] *
                             self.order_acceptance[order_id]
                         )
-                        # TODO compare quicksum, addTerms and add or divide to 
+                        # TODO compare quicksum, addTerms and add or divide to
                         # two parts since order_stay is static
                         for to_type in self.upgrade_levels[room_type]:
                             det_agent_consump.add(
-                                - order_stay * 
+                                - order_stay *
                                 self.upgrade_amount[order_id, room_type, to_type]
                             )
                         # det_agent_consump.add(- order_stay *
@@ -341,12 +360,36 @@ class GurobiManager:
                     )
                     # det_agent_consump[(room_type, t)] = det_agent_consump
                     for demand_id in (np.arange(self.demand_ub[room_type] + 1) + 1).astype(str):
+                        left_vac = type_capacity - det_agent_consump
                         self.model.addConstr(
                             self.individual_reservation[
                                 room_type, t, demand_id
-                            ] <= type_capacity - det_agent_consump,
+                            ] <= left_vac,
                             name="Individual reservation UB by left vacancy"
                         )
+                        # # to control ind rev is exactly correct
+                        # self.model.addConstr(
+                        #     self.individual_reservation[
+                        #         room_type, t, demand_id
+                        #     ] >= left_vac -
+                        #     ((1 - self.if_individual_underage[room_type, t,
+                        #                                       demand_id]) *
+                        #      type_capacity),
+                        #     name="Individual reservation UB by left vacancy"
+                        # )
+                        # self.model.addConstr(
+                        #     self.if_individual_underage[
+                        #         room_type, t, demand_id
+                        #     ] * id_to_val(demand_id) >=
+                        #     id_to_val(demand_id) - left_vac
+                        # )
+                        # self.model.addConstr(
+                        #     (self.if_individual_underage[room_type, t,
+                        #                                  demand_id] - 1) *
+                        #     type_capacity <=
+                        #     id_to_val(demand_id) - left_vac
+                        # )
+
 
             # limit individual reservation by left vacancy
             # for room_type, t, demand_id in self.ind_demand_indice:
@@ -358,17 +401,6 @@ class GurobiManager:
             #         name="Individual reservation UB by left vacancy"
             #     )
 
-        else:  # with capacity reservation
-            for room_type, t, demand_id in self.ind_demand_indice:
-                self.model.addConstr(
-                    (
-                        self.individual_reservation[
-                            room_type, t, demand_id
-                        ] <= self.capacity_reservation[room_type, t]
-                    ),
-                    name="individual reservation UB by conserved capacity"
-                )
-
         if self.with_ind_cancel:
             # identity which reservation id is valid and realized
             for room_type, t, demand_id, reservation_id in \
@@ -378,7 +410,7 @@ class GurobiManager:
                     self.individual_reservation[room_type, t, demand_id]
                 self.model.addConstr(
                     (1 - self.is_valid_reservation[room_type, t, demand_id,
-                                                   reservation_id]) * 
+                                                   reservation_id]) *
                     id_to_val(demand_id) >= id_to_val(reservation_id)
                     - reservation_amount,
                     name='reservation identification by overflow filter'
@@ -389,6 +421,15 @@ class GurobiManager:
                     id_to_val(demand_id) <= id_to_val(reservation_id) -
                     reservation_amount,
                     name='reservation identification by underflow filter'
+                )
+            for room_type, t, demand_id in self.ind_demand_indice:
+                self.model.addConstr(
+                    quicksum(
+                        self.is_valid_reservation[room_type, t, demand_id,
+                                                  reservation_id]
+                        for reservation_id in \
+                        (np.arange(int(demand_id)) + 1).astype(str)
+                    ) == 1
                 )
 
         if self.with_agent_cancel:
@@ -405,14 +446,15 @@ class GurobiManager:
                     1 - self.agent_cancel_comb[agent_cancel_id][order_id],
                     name='order realization limited by cancellation'
                 )
+                self.model.addConstr(
+                    self.agent_order_realization[agent_cancel_id, order_id] >=
+                    self.order_acceptance[order_id] -
+                    self.agent_cancel_comb[agent_cancel_id][order_id],
+                    name='order realization LB by acceptance and cancellation'
+                )
 
         if (self.with_agent_cancel & self.with_ind_cancel &
             self.with_capacity_reservation):
-
-            big_constant = quicksum(
-                self.room_capacity[iter_room_id]
-                for iter_room_id in self.room_type_set
-            ) 
 
             for (room_type, t, ind_demand_id, ind_reservation_id,
                  ind_cancel_id, agent_cancel_id) in self.realization_indice:
@@ -445,24 +487,18 @@ class GurobiManager:
                                                   ind_reservation_id,
                                                   ind_cancel_id,
                                                   agent_cancel_id] >=
-                    - self.room_capacity[room_type]+ 
-                    id_to_val(ind_reservation_id) - 
-                    id_to_val(ind_cancel_id) + 
-                    sto_agent_consump - 
+                    - self.room_capacity[room_type]+
+                    id_to_val(ind_reservation_id) -
+                    id_to_val(ind_cancel_id) +
+                    sto_agent_consump -
                     (1 - self.is_valid_reservation[room_type, t, ind_demand_id,
                                                    ind_reservation_id]) *
-                    (big_constant + id_to_val(ind_reservation_id)),
+                    (self.agent_usage_ub[t] + id_to_val(ind_reservation_id)),
                     name='compensation room amount LB'
                 )
 
         if ((not self.with_agent_cancel) & self.with_ind_cancel &
             self.with_capacity_reservation):
-
-            # TODO duplicate with all true case
-            big_constant = quicksum(
-                self.room_capacity[iter_room_id]
-                for iter_room_id in self.room_type_set
-            ) 
 
             for room_type, t, ind_demand_id, ind_reservation_id, ind_cancel_id \
                 in self.realization_indice:
@@ -478,7 +514,7 @@ class GurobiManager:
                     )
                     for to_type in self.upgrade_levels[room_type]:
                         det_agent_consump.add(
-                            - order_stay * 
+                            - order_stay *
                             self.upgrade_amount[order_id, room_type, to_type]
                         )
                     for from_type in self.downgrade_levels[room_type]:
@@ -498,7 +534,7 @@ class GurobiManager:
                     - (1 - self.is_valid_reservation[room_type, t,
                                                      ind_demand_id,
                                                      ind_reservation_id])
-                    * (big_constant + id_to_val(ind_reservation_id)),
+                    * (self.agent_usage_ub[t] + id_to_val(ind_reservation_id)),
                     name='compensation room amount LB'
                 )
 
@@ -506,7 +542,7 @@ class GurobiManager:
     def _set_objective_func(self):
 
         # FIXME no objective function for no ind cancel
-        # TODO individual profit is duplicate but to reduce the loop, it is 
+        # TODO individual profit is duplicate but to reduce the loop, it is
         # combined with compensation
 
         if not self.with_agent_cancel:
@@ -515,7 +551,7 @@ class GurobiManager:
                 agent_profit.add(
                     self.agent_order_price[order_id]
                     * self.order_acceptance[order_id]
-                ) 
+                )
                 # for t in self.time_span:
                 #     # TODO consider whether to create lInExpr
                 #     # upgrade_fee_tonight = LinExpr(0)
@@ -528,7 +564,7 @@ class GurobiManager:
                 #             for up_type in self.upgrade_levels[room_type]
                 #         )
                 #     )
-                # TODO use quicksum instead of for loop as multiplying 
+                # TODO use quicksum instead of for loop as multiplying
                 agent_profit.add(
                     quicksum(
                         self.agent_order_stay[order_id][t]
@@ -547,12 +583,13 @@ class GurobiManager:
                 agent_profit.add(
                     get_agent_cancel_prob(
                         self.agent_cancel_comb[agent_cancel_id],
-                        self.agent_cancel_rate
+                        self.agent_cancel_rate,
+                        self.agent_order_set
                     ) * (
                         self.agent_order_price[order_id] *
-                        self.agent_order_realization[agent_cancel_id, order_id] + 
+                        self.agent_order_realization[agent_cancel_id, order_id] +
                         quicksum(
-                            self.agent_order_stay[order_id][t] 
+                            self.agent_order_stay[order_id][t]
                             for t in self.time_span
                         ) * quicksum(
                             self.upgrade_fee[room_type][up_type] *
@@ -565,23 +602,23 @@ class GurobiManager:
                 )
 
         if ((not self.with_capacity_reservation) & self.with_ind_cancel):
-            # this part actually duplicates in four models, but since the 
-            # compensation item facilitate almost the same indice, it can not 
-            # be modulized 
+            # this part actually duplicates in four models, but since the
+            # compensation item facilitate almost the same indice, it can not
+            # be modulized
             ind_profit = LinExpr(0)
             for room_type, t, demand_id, reservation_id in \
                 self.ind_demand_reservation_indice:
                 ind_profit.add(
-                    self.individual_demand_pmf[room_type][t][demand_id]['prob'] * 
+                    self.individual_demand_pmf[room_type][t][demand_id]['prob'] *
                     self.is_valid_reservation[room_type, t, demand_id,
-                                              reservation_id] * 
+                                              reservation_id] *
                     quicksum(
                         get_ind_cancel_prob(
                             self.individual_cancel_rate[room_type],
                             reservation_id,
                             cancel_val
-                        ) * 
-                        (id_to_val(reservation_id) - cancel_val) * 
+                        ) *
+                        (id_to_val(reservation_id) - cancel_val) *
                         self.individual_room_price[room_type]
                         for cancel_val in range(int(reservation_id))
                     )
@@ -610,32 +647,32 @@ class GurobiManager:
 
                 ind_demand_prob = self.individual_demand_pmf[room_type][t][demand_id]['prob']
 
-                # TODO try addTerms and add 
-                # TODO try not to iterate both items together, because the 
+                # TODO try addTerms and add
+                # TODO try not to iterate both items together, because the
                 # former item does not iterate with variable but only statics
                 # TODO test if get_prob consume lots of time
                 ind_cancel_prob_list = []
-                for ind_cancel_id in (np.arange(reservation_id) + 1).astype(str):
-                    
+                for ind_cancel_id in (np.arange(int(reservation_id)) + 1).astype(str):
+
                     ind_cancel_prob = get_ind_cancel_prob(
                         self.individual_cancel_rate[room_type],
                         reservation_id,
                         id_to_val(ind_cancel_id)
                     )
                     ind_cancel_prob_list.append(ind_cancel_prob)
-                
+
                     ind_and_comp.add(
-                        - ind_demand_prob * ind_cancel_prob * 
+                        - ind_demand_prob * ind_cancel_prob *
                         self.compensation_price[room_type][t] *
-                        self.compensation_room_amount[room_type, t, demand_id, 
-                                                      reservation_id, 
-                                                      ind_cancel_id] 
+                        self.compensation_room_amount[room_type, t, demand_id,
+                                                      reservation_id,
+                                                      ind_cancel_id]
                     )
                     # TODO avoid some parameter query keys too often
 
                 # TODO write with expression or var and coef
                 ind_and_comp.add(
-                    ind_demand_prob * 
+                    ind_demand_prob *
                     self.is_valid_reservation[room_type, t, demand_id,
                                               reservation_id] *
                     quicksum(
@@ -661,7 +698,7 @@ class GurobiManager:
                 ind_demand_prob = self.individual_demand_pmf[room_type][t][demand_id]['prob']
                 ind_cancel_prob_list = []
                 for ind_cancel_id in (np.arange(int(reservation_id)) + 1).astype(str):
-                    
+
                     ind_cancel_prob = get_ind_cancel_prob(
                         self.individual_cancel_rate[room_type],
                         reservation_id,
@@ -672,19 +709,20 @@ class GurobiManager:
                     # TODO calculate for agent cancel is time-consuming
                     for agent_cancel_id in self.agent_cancel_indice:
                         ind_and_comp.add(
-                            - ind_demand_prob * ind_cancel_prob * 
+                            - ind_demand_prob * ind_cancel_prob *
                             get_agent_cancel_prob(
                                 self.agent_cancel_comb[agent_cancel_id],
-                                self.agent_cancel_rate
+                                self.agent_cancel_rate,
+                                self.agent_order_set
                             ) * self.compensation_price[room_type][t] *
                             self.compensation_room_amount[
-                                room_type, t, demand_id, reservation_id, 
+                                room_type, t, demand_id, reservation_id,
                                 ind_cancel_id, agent_cancel_id
                             ]
                         )
-                    
+
                 ind_and_comp.add(
-                    ind_demand_prob * 
+                    ind_demand_prob *
                     self.is_valid_reservation[room_type, t, demand_id,
                                               reservation_id] *
                     quicksum(
@@ -739,8 +777,21 @@ class GurobiManager:
             )
         else:
             ind_valid_df = pd.DataFrame()
-        acc_df = self._get_df(self.order_acceptance, 'accept', ['order ID'])
-        return acc_df, upgrade_df, ind_valid_df, self.model.objVal
+        if self.set_order_acc:
+            acc_df = pd.DataFrame.from_dict(self.order_acceptance, orient='index')
+        else:
+            acc_df = self._get_df(self.order_acceptance, 'accept', ['order ID'])
+        if self.with_capacity_reservation:
+            col = ['room ID', 'time ID', 'demand ID', 'reservation ID',
+                   'IND cancel ID']
+            if self.with_agent_cancel:
+                col += ['agent cancel ID', ]
+            comp_df = self._get_df(self.compensation_room_amount, 'comp', col)
+        else:
+            comp_df = pd.DataFrame()
+        rev_df = self._get_df(self.individual_reservation, 'rev', ['room', 'time', 'demand_ID'])
+
+        return acc_df, upgrade_df, ind_valid_df, comp_df, rev_df, self.model.objVal
 
     # print("Objective value:", model.objVal)
     # print("Runtime: ", model.Runtime)
