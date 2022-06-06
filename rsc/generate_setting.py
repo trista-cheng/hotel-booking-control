@@ -36,14 +36,14 @@ agent_setting = {
     "batch_size": 1,
     "room_request_ratio_threshold": 1.5,
     "padding_rate": 0.3,
-    "num_room_multiplier": 0.7,
+    "num_room_multiplier": 0.75,
     "price_multiplier": 0.8,
     "avg_cancel_rate": 0.2,
 }
 
 individual_setting = {
     "individual_pop_size": np.array([
-        30, 10,
+        10, 5,
     ]),
     "weekend_rate": np.array([
         0.4, 0.3,
@@ -61,10 +61,10 @@ IND_DEMAND_MUL_SET = (0.5, 1, 2)
 STAY_MUL_SET = (0.8, )
 ROOM_RATE_SET = np.array([
     np.array([
-        0.6, 0.4,
+        0.7, 0.45,
     ]),
     np.array([
-        0.4, 0.6,
+        0.45, 0.7,
     ]),
 ])
 
@@ -128,6 +128,7 @@ for ind_demand_mul in IND_DEMAND_MUL_SET:
                 'ind_demand_mul': ind_demand_mul,
                 'stay_mul': stay_mul,
                 'room_rate': room_rate,
+                'room_rate_name': f"{room_rate.argmax()}",
                 'display_name': display_name,
                 'agent_setting': agent_file_path,
                 "individual_setting": ind_file_path,
