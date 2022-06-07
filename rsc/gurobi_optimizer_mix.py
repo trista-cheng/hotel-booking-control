@@ -137,7 +137,7 @@ class GurobiManager:
     def _get_df(self, variable, col_name:str, index_names:list):
         var_sol = self.model.getAttr('x', variable)
         if len(index_names) == 1:
-            index = None
+            index = var_sol.keys()
         else:
             index = pd.MultiIndex.from_tuples(var_sol.keys(), names=index_names)
 
@@ -831,18 +831,23 @@ class GurobiManager:
         if self.set_order_acc:
             acc_df = pd.DataFrame.from_dict(self.order_acceptance, orient='index')
         else:
-            acc_df = self._get_df(self.order_acceptance, 'accept', ['order ID'])
+            acc_df = self._get_df(self.order_acceptance, 'accept', ['order ID', ])
         if self.with_capacity_reservation:
             col = ['room ID', 'time ID', 'demand ID', 'reservation ID',
                    'IND cancel ID']
             if self.with_agent_cancel:
                 col += ['agent cancel ID', ]
             comp_df = self._get_df(self.compensation_room_amount, 'comp', col)
+            cap_rev_df = self._get_df(self.capacity_reservation, 'cap_rev',
+                                      ['room', 'time'])
+            cap_rev_df = cap_rev_df.unstack()
+            # .reset_index().pivot_table(index='room', columns='time')
         else:
             comp_df = pd.DataFrame()
+            cap_rev_df = pd.DataFrame()
         rev_df = self._get_df(self.individual_reservation, 'rev', ['room', 'time', 'demand_ID'])
 
-        return acc_df, upgrade_df, ind_valid_df, comp_df, rev_df, self.model.objVal
+        return acc_df, upgrade_df, cap_rev_df, self.model.objVal
 
     # print("Objective value:", model.objVal)
     # print("Runtime: ", model.Runtime)
