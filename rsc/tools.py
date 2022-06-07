@@ -50,11 +50,25 @@ def get_exp_ub(scenario, instance_id, upgrade_rule, with_agent_cancel):
     else:
         agent_ub = agent_order_price.sum()
         agent_req = np.dot(agent_order_room_quantity.T, agent_order_stay)
-    ind_exp_req = get_ind_exp_req(scenario, len(time_span), demand_ub,
-                                  individual_cancel_rate)
+    ind_exp_req = get_ind_exp_req(scenario, len(time_span))
     ind_ub = (ind_exp_req * individual_room_price.reshape((-1, 1))).sum()
 
-    capacity_value = (((ind_ub + agent_ub) / (ind_exp_req + agent_req).sum()) *
-                      (room_capacity.sum() * len(time_span)))
+    avg_capacity_value = (
+        ((ind_ub + agent_ub) /
+         (ind_exp_req + agent_req).sum()) *
+        (room_capacity.sum() * len(time_span))
+    )
 
-    return agent_ub, ind_ub, capacity_value
+    with open(scenario['agent_setting'], 'rb') as f:
+        agent_setting = np.load(f, allow_pickle=True)[()]
+    agent_price_multiplier = agent_setting['price_multiplier']
+    capacity = room_capacity.reshape((-1, 1)) * np.ones(len(time_span))
+    ind_exp_req[np.where(ind_exp_req > capacity)] = \
+        capacity[np.where(ind_exp_req > capacity)]
+    ind_income = (ind_exp_req * individual_room_price.reshape((-1, 1))).sum()
+    rest_vac = capacity - ind_exp_req
+    agent_income = (rest_vac * individual_room_price.reshape((-1, 1)) *
+                    agent_price_multiplier).sum()
+    income_ub = ind_income + agent_income
+
+    return agent_ub, ind_ub, avg_capacity_value, income_ub
