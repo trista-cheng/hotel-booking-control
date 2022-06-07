@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from data_reader import CSVDataReader
-from data_manager import OUTPUT_ROOT as DATA_ROOT
+from create_data import OUTPUT_ROOT as DATA_ROOT
 
 class ConstraintViolation(Exception):
     def __init__(self, scenario, instance_id, hint=None, *args: object) -> None:
@@ -10,13 +10,13 @@ class ConstraintViolation(Exception):
         self.instance_id = instance_id
         self.hint = hint
         super().__init__(*args)
-    
+
     def __str__(self):
         return f"{self.hint}| Scenario: {self.scenario}| \
                  Instance: {self.instance_id}"
 
 class Validator:
-    def __init__(self, scenario, instance_id: int, acceptance: np.array, 
+    def __init__(self, scenario, instance_id: int, acceptance: np.array,
                  upgrade: np.array, sale: pd.DataFrame, data_root=DATA_ROOT):
         """
         Methods
@@ -40,7 +40,7 @@ class Validator:
         self.num_order = self.order_price.shape[0]
         self.num_period = self.order_stay.shape[1]
         self.sale = sale
-        
+
     def validate_shape(self, rule):
         if not (self.num_order == self.acceptance.shape[0]):
             self.error_base.hint = "Acceptance length not order length"
@@ -68,7 +68,7 @@ class Validator:
                 raise self.error_base
 
     def _validate_capacity(self):
-        
+
         upgrade_diff = (
             np.dot(self.upgrade, -np.ones((self.num_room, 1))).reshape(
                 (self.num_order, self.num_room)
@@ -78,11 +78,11 @@ class Validator:
             )
         )
         final_demand = np.dot(
-            (self.order_room + upgrade_diff).T, 
+            (self.order_room + upgrade_diff).T,
             self.acceptance.reshape((self.num_order, 1)) * self.order_stay
         )
         base_capacity = np.repeat(
-            np.reshape(self.capacity, (self.num_room, 1)), 
+            np.reshape(self.capacity, (self.num_room, 1)),
             self.num_period,
             axis=1
         )
@@ -94,21 +94,21 @@ class Validator:
             ).all()):
                 self.error_base.hint = "Demand exceeds capacity"
                 raise self.error_base
-        self.vacancy = (self.capacity.reshape((self.num_room, 1)) * 
+        self.vacancy = (self.capacity.reshape((self.num_room, 1)) *
                         np.ones(self.num_period))
         self.vacancy = self.vacancy - final_demand
         self.agent_demand = final_demand
 
     def validate_capacity_obj(self, obj):
         self._validate_capacity()
-        
+
         agent_rev = np.dot(
-            self.acceptance, 
+            self.acceptance,
             self.order_price.reshape((self.num_order, 1))
         )[0]
         upgrade_rev = (
-            self.upgrade * 
-            self.upgrade_fee * 
+            self.upgrade *
+            self.upgrade_fee *
             self.order_stay.sum(axis=1).reshape(self.num_order, 1, 1)
         )
         agent_rev = agent_rev + upgrade_rev.sum()
@@ -120,37 +120,37 @@ class Validator:
         ind_quantity = np.resize(np.arange(self.ind_pmf.shape[2]),
             (self.num_room, self.num_period, self.ind_pmf.shape[2], 1)
         )
-        # For the calculation convenience, the matrix has the same max demand_ub 
-        # elements for the last dimension. However, the PMF would be zero, so 
+        # For the calculation convenience, the matrix has the same max demand_ub
+        # elements for the last dimension. However, the PMF would be zero, so
         # the product result should be guaranteed.
         sale = np.amin(np.concatenate([vacancy, ind_quantity], axis=3), axis=3)
         mul_index = pd.MultiIndex.from_product(
-            [[str(r + 1) for r in range(self.num_room)], 
+            [[str(r + 1) for r in range(self.num_room)],
              [str(t + 1) for t in range(self.num_period)],
              [str(o + 1) for o in range(self.ind_pmf.shape[2])]],
             names=["room", "time", "outcome"]
         )
         sale_df = pd.DataFrame(sale.flatten(), index=mul_index, columns=["sale"])
-        sale_merge = sale_df.merge(self.sale, left_index=True, right_index=True, 
-                                suffixes=['_validator', '_gurobi'], how='left', 
+        sale_merge = sale_df.merge(self.sale, left_index=True, right_index=True,
+                                suffixes=['_validator', '_gurobi'], how='left',
                                 indicator=True)
         # sale_merge.to_csv("merge.csv")
         sale_gurobi = sale_merge['sale_gurobi'].fillna(0).to_numpy().reshape(
             (self.num_room, self.num_period, self.ind_pmf.shape[2])
         )
 
-        ind_rev = (sale * self.ind_pmf * 
+        ind_rev = (sale * self.ind_pmf *
                    self.ind_room_price.reshape((self.num_room, 1, 1)))
         total_exp_rev = agent_rev + ind_rev.sum()
 
         if not np.isclose(
-            (sale_gurobi * self.ind_pmf * 
-             self.ind_room_price.reshape((self.num_room, 1, 1))).sum(), 
-            ind_rev.sum(), 
-            rtol=0, 
+            (sale_gurobi * self.ind_pmf *
+             self.ind_room_price.reshape((self.num_room, 1, 1))).sum(),
+            ind_rev.sum(),
+            rtol=0,
             atol=1
         ):
-            # TODO would test with any or all not the sum product 
+            # TODO would test with any or all not the sum product
             # to more thoroughly
             # FIXME magic number around np.isclose
             self.error_base.hint = "Effective sale not match"
@@ -159,6 +159,4 @@ class Validator:
         if not np.isclose(total_exp_rev, obj, rtol=0, atol=1):
             # FIXME magic number around np.isclose
             self.error_base.hint = "Obj error"
-            raise self.error_base 
-        
-
+            raise self.error_base

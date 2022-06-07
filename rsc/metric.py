@@ -1,4 +1,4 @@
-from data_manager import OUTPUT_ROOT as DATA_ROOT
+from create_data import OUTPUT_ROOT as DATA_ROOT
 from data_reader import CSVDataReader
 
 def get_reject_room_ratio(scenario, instance_id, acceptance, data_root=DATA_ROOT):

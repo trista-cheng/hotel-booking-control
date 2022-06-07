@@ -8,7 +8,7 @@ from itertools import product
 # For the room rate. Since there may be one order without any room requested,
 # we generate times of batch size instances and filter those with at least one
 # type required
-OVERSAMPLE_RATIO = 15
+OVERSAMPLE_RATIO = 5
 
 def check_consistent_len(attr_list: list):
     is_valid = True
@@ -22,7 +22,7 @@ def check_consistent_len(attr_list: list):
 class DataGenerator:
     def __init__(self, time_span_len: int, num_room_type: int,
                  capacity: np.array, individual_price: np.array,
-                 upgrade_fee_gap_multiplier: float, 
+                 upgrade_fee_gap_multiplier: float,
                  compensation_price: np.array) -> None:
         """
         Lengths of capacity, individual_price, individual_success_rate,
@@ -75,8 +75,8 @@ class DataGenerator:
             self.compensation_price.reshape((-1, 1)),
             self.time_span_len,
             axis=1
-        ) 
-        return (self.capacity, self.individual_price, upgrade_fee, 
+        )
+        return (self.capacity, self.individual_price, upgrade_fee,
                 compensation_price)
 
     def generate_agent_order(self, room_request_ratio_threshold: float,
