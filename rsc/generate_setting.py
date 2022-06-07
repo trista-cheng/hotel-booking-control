@@ -2,7 +2,6 @@ from pathlib import Path
 from os.path import join, exists
 
 import configparser
-import copy
 import numpy as np
 
 from tools import clean_archive_output
@@ -19,52 +18,54 @@ clean_archive_output(['settings', 'data'])
 
 basic_setting = {
     # hotel basic info
-    "time_span_len": 4,
-    "num_room_type": 2,
+    "time_span_len": 14,
+    "num_room_type": 4,
     # standard level data
     "capacity": np.array([
-        10, 5,
+        70, 60, 30, 15
     ]),
     "individual_price": np.array([
-        1500, 3000,
+        1600, 2500, 5500, 8000
     ]),
     "upgrade_fee_gap_multiplier": 0.3,
-    "compensation_price": np.array([1500, 3000, ]) * 1.4,
+    "compensation_price": np.array([
+        1600, 2500, 5500, 8000
+    ]) * 1.4,
 }
 
 agent_setting = {
-    "batch_size": 1,
-    "room_request_ratio_threshold": 1.5,
+    "batch_size": 5,
+    "room_request_ratio_threshold": 1.3,
     "padding_rate": 0.3,
-    "num_room_multiplier": 0.75,
+    "num_room_multiplier": 0.25,
     "price_multiplier": 0.8,
     "avg_cancel_rate": 0.2,
 }
 
 individual_setting = {
     "individual_pop_size": np.array([
-        10, 5,
-    ]),
-    "weekend_rate": np.array([
-        0.4, 0.3,
+        70, 60, 30, 20
     ]),
     "week_rate": np.array([
-        0.3, 0.25,
+        0.35, 0.3, 0.25, 0.15,
+    ]),
+    "weekend_rate": np.array([
+        0.4, 0.35, 0.3, 0.2,
     ]),
     "cancel_rate": np.array([
-        0.25, 0.15,
+        0.3, 0.2, 0.15, 0.1
     ]),
 }
 
 # factor range
-IND_DEMAND_MUL_SET = (0.5, 1, 2)
-STAY_MUL_SET = (0.8, )
+IND_DEMAND_MUL_SET = (0.5, 1, 1.5)
+STAY_MUL_SET = (0.25, 0.5)
 ROOM_RATE_SET = np.array([
     np.array([
-        0.7, 0.45,
+        0.475, 0.4, 0.35, 0.25,
     ]),
     np.array([
-        0.45, 0.7,
+        0.25, 0.35, 0.4, 0.475
     ]),
 ])
 
