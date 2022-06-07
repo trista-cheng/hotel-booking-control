@@ -196,10 +196,10 @@ class CSVDataReader:
         room_type_set = np.arange(len(room_capacity))
         if upgrade_rule == 'up':
             invalid_msk = np.tril_indices_from(upgrade_fee)
-            upgrade_fee[invalid_msk] = np.nan
+            upgrade_fee[invalid_msk] = 0
         elif upgrade_rule == 'down':
             invalid_msk = np.triu_indices_from(upgrade_fee)
-            upgrade_fee[invalid_msk] = np.nan
+            upgrade_fee[invalid_msk] = 0
 
         return (room_type_set, room_capacity, upgrade_fee, compensation_price)
 
@@ -225,8 +225,7 @@ class CSVDataReader:
         ind_demand_prob = pd.DataFrame.from_dict(
             individual_demand_pmf[()], orient='index'
         ).sort_index()
-        # FIXME check the index is int not str, otherwise sort may result in
-        # inconsistancy
+        # the index is int not str, otherwise sort may result in inconsistancy
         # FIXME not sure the numpy object is correct
         ind_demand_prob = ind_demand_prob['prob'].to_numpy().reshape(
             ind_demand_prob.index.levshape
