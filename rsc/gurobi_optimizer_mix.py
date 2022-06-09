@@ -847,7 +847,8 @@ class GurobiManager:
             cap_rev_df = pd.DataFrame()
         rev_df = self._get_df(self.individual_reservation, 'rev', ['room', 'time', 'demand_ID'])
 
-        return acc_df, upgrade_df, cap_rev_df, self.model.objVal
+        return (acc_df, upgrade_df, cap_rev_df, self.model.objVal,
+                self.model.MIPGap, ind_valid_df, comp_df, rev_df)
 
     # print("Objective value:", model.objVal)
     # print("Runtime: ", model.Runtime)
