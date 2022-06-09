@@ -126,8 +126,8 @@ class Solver:
                            self.capacity[invalid_msk]):
                 pass
             else:
-                # print(agent_det_agg_consump)
-                # print(self.capacity)
+                print(agent_det_agg_consump)
+                print(self.capacity)
                 raise Exception('Agent consumption exceeds capacity')
 
         if self.with_agent_cancel:
@@ -438,8 +438,8 @@ class Solver:
 
             # stopping criteria
             if (left_vac[:, max_vac_time] <= 0).all():
-                prioty += 1  # try next time candidate
-                continue
+                # no need to try any worse time candidate
+                break
 
             # possible to improve by adding orders
             candidates = np.where(
@@ -591,27 +591,30 @@ class Solver:
             #     break
 
         # decided capacity reservation
-        ind_ub = get_ind_exp_req(self.scenario, self.time_span_len,
-                                 self.with_ind_cancel)
-        capacity_reservation = (
-            (ind_ub + acc_compensation) *
-            (1 / (1 - self.individual_cancel_rate)).reshape((-1, 1))
-        )
-        capacity_reservation[capacity_reservation < 0] = 0
+        if self.with_capacity_reservation:
+            ind_ub = get_ind_exp_req(self.scenario, self.time_span_len,
+                                    self.with_ind_cancel)
+            capacity_reservation = (
+                (ind_ub + acc_compensation) *
+                (1 / (1 - self.individual_cancel_rate)).reshape((-1, 1))
+            )
+            capacity_reservation[capacity_reservation < 0] = 0
+        else:
+            capacity_reservation = None
         return order_acceptance, order_upgrade, capacity_reservation
 
-# import configparser
-# scenarios = configparser.ConfigParser()
-# scenarios.read('scenarios.ini')
-# for scenario in scenarios.sections():
-#     solver = Solver(scenarios[scenario], 0, 'up', 0, 0)
-#     order_acceptance, order_upgrade, capacity_reservation = \
-#         solver.get_decision()
-#      # convert to dataframe
-#     acceptance_df, upgrade_df, cap_rev_df = solver.get_df(
-#         order_acceptance,
-#         order_upgrade,
-#         capacity_reservation
-#     )
-#     obj_val = solver.get_obj(order_acceptance, order_upgrade,
-#                              capacity_reservation)
+import configparser
+scenarios = configparser.ConfigParser()
+scenarios.read('scenarios.ini')
+for scenario in scenarios.sections()[:1]:
+    solver = Solver(scenarios[scenario], 3, 'up', 0, 0)
+    order_acceptance, order_upgrade, capacity_reservation = \
+        solver.get_decision()
+     # convert to dataframe
+    acceptance_df, upgrade_df, cap_rev_df = solver.get_df(
+        order_acceptance,
+        order_upgrade,
+        capacity_reservation
+    )
+    obj_val = solver.get_obj(order_acceptance, order_upgrade,
+                             capacity_reservation)
