@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import logging
 import configparser
+# import atexit
 
 from os.path import join
 from pathlib import Path
@@ -9,11 +10,10 @@ from time import perf_counter
 from itertools import product
 
 from gurobi_optimizer_mix import GurobiManager
-from gurobi_optimizer_relax import GurobiRelaxManager
 from solver import Solver
 from tools import get_exp_ub
 
-logging.basicConfig(filename='log.log',
+logging.basicConfig(filename='algo_log.log',
                     format='%(asctime)s %(levelname)-8s %(message)s',
                     level=logging.WARNING, datefmt='%Y-%m-%d %H:%M:%S')
 logging.warning("Start!")
@@ -26,14 +26,15 @@ SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
 REPLICATE_NUM = 5
-MIP_GAP = 0.1
+MIP_GAP = 0.05
+TIME_LIMIT = 3 * 60 * 60
 DATA_ROOT = "data"
 UPGRADE_RULE = "up"
 
 # test factor
-SOLVERS = ['gurobi']
-CAP_REV_LEVLES = [1, 0]
-AGENT_CANCEL_LEVELS = [1, 0]
+SOLVERS = ['yulindog']
+CAP_REV_LEVLES = [0, 1]
+AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read('scenarios.ini')
 
@@ -68,8 +69,9 @@ class Conductor:
         self.upgrade_rule = upgrade_rule
         self.data_root = data_root
 
-    def save_scenario_metric(self, output_folder, objs, cal_times, ubs):
-        df = pd.DataFrame({"obj": objs, "time": cal_times})
+    def save_scenario_metric(self, output_folder, objs, cal_times, mip_gaps,
+                             ubs):
+        df = pd.DataFrame({"obj": objs, "time": cal_times, 'mip_gap': mip_gaps})
         df[['agent_ub', 'ind_ub', 'capacity_value', 'income_ub']] = ubs
         df.to_csv(join(output_folder, 'performance.csv'))
 
@@ -86,6 +88,7 @@ class Conductor:
                                 f"agent_cancel_{with_agent_cancel}")
 
                 # for each scenario
+                # FIXME modification is birdy
                 for scenario_name in self.scenarios.sections():
                     scenario = self.scenarios[scenario_name]
                     output_folder = join(solution_dir, scenario_name)
@@ -93,6 +96,7 @@ class Conductor:
                     objs = []
                     cal_times = []
                     ubs = []
+                    mip_gaps= []
 
                     for instance_id in range(self.replicate_num):
                         experiment = Experiment(
@@ -105,13 +109,14 @@ class Conductor:
                             upgrade_rule=self.upgrade_rule,
                             data_root=self.data_root,
                         )
-                        obj, cal_time, ub = experiment.carry_out_trial()
+                        obj, cal_time, mip_gap, ub = experiment.carry_out_trial()
                         objs.append(obj)
                         cal_times.append(cal_time)
+                        mip_gaps.append(mip_gap)
                         ubs.append(ub)
 
                     self.save_scenario_metric(output_folder, objs, cal_times,
-                                              ubs)
+                                              mip_gaps, ubs)
 
 
 
@@ -140,7 +145,8 @@ class Experiment:
         self.data_root = data_root
         self.output_folder = output_folder
 
-    def save_instance_sol(self, acceptance_df, upgrade_df, cap_rev_df):
+    def save_instance_sol(self, acceptance_df, upgrade_df, cap_rev_df,
+                          obj_val, cal_time, mip_gap):
         acceptance_df.to_csv(
             join(self.output_folder, f"{self.instance_id}_acceptance.csv"),
             # index=False
@@ -152,6 +158,12 @@ class Experiment:
         cap_rev_df.to_csv(
             join(self.output_folder, f"{self.instance_id}_cap_rev.csv"),
             # index=False
+        )
+        pd.DataFrame(
+            {'obj': [obj_val], 'time': [cal_time], 'mip_gap': [mip_gap]}
+        ).to_csv(
+            join(self.output_folder, f"{self.instance_id}_performance.csv"),
+            index=False
         )
 
     def carry_out_trial(self):
@@ -167,10 +179,14 @@ class Experiment:
                 set_order_acc=SET_ORDER_ACC
             )
             optimizer.build_model()
-            optimizer.solve(time_limit=float('inf'), mip_gap=MIP_GAP)
+            optimizer.solve(time_limit=TIME_LIMIT, mip_gap=MIP_GAP)
             cal_time = perf_counter() - start_time
-            (acceptance_df, upgrade_df, cap_rev_df, obj_val) = \
-                optimizer.get_result()
+            (acceptance_df, upgrade_df, cap_rev_df, obj_val, mip_gap,
+             ind_valid_df, comp_df, rev_df) = optimizer.get_result()
+            # save some extra data for verification
+            ind_valid_df.to_csv(join(self.output_folder, f'{self.instance_id}_ind_valid.csv'))
+            comp_df.to_csv(join(self.output_folder, f'{self.instance_id}_compensation.csv'))
+            rev_df.to_csv(join(self.output_folder, f'{self.instance_id}_revservation.csv'))
 
         elif self.solver == 'yulindog':
             solver = Solver(
@@ -193,9 +209,12 @@ class Experiment:
             obj_val = solver.get_obj(order_acceptance, order_upgrade,
                                     capacity_reservation)
             cal_time = solver.calculation_time
+            mip_gap = None
         else:
             raise Exception("Error setting in solver name")
-        self.save_instance_sol(acceptance_df, upgrade_df, cap_rev_df)
+        self.save_instance_sol(acceptance_df, upgrade_df, cap_rev_df,
+                               obj_val=obj_val, cal_time=cal_time,
+                               mip_gap=mip_gap)
         logging.warning(f"solver {self.solver}, "
                         f"overbooking {self.with_capacity_reservation}, "
                         f"agent_cancel {self.with_agent_cancel},"
@@ -205,10 +224,17 @@ class Experiment:
             self.with_agent_cancel
         )
 
-        return obj_val, cal_time, [agent_ub, ind_ub, capacity_value, income_ub]
+        return (obj_val, cal_time, mip_gap,
+                [agent_ub, ind_ub, capacity_value, income_ub])
 
 
 if __name__ == '__main__':
+
+    # def exit_handler():
+    #     print('sth wrong')
+
+    # atexit.register(exit_handler)
+
     conductor = Conductor(SOLVERS, CAP_REV_LEVLES, AGENT_CANCEL_LEVELS,
                           SCENARIOS, REPLICATE_NUM, UPGRADE_RULE, DATA_ROOT)
     conductor.conduct_experiment()
