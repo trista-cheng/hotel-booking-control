@@ -28,15 +28,17 @@ SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 REPLICATE_NUM = 5
 MIP_GAP = 0.05
 TIME_LIMIT = 3 * 60 * 60
-DATA_ROOT = "data"
+# ROOT = join("history", "0609_small")
+ROOT = ''
+DATA_ROOT = join(ROOT, "data")
 UPGRADE_RULE = "up"
 
 # test factor
 SOLVERS = ['yulindog']
-CAP_REV_LEVLES = [0, 1]
+CAP_REV_LEVLES = [0, ]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
-SCENARIOS.read('scenarios.ini')
+SCENARIOS.read(join(ROOT, 'scenarios.ini'))
 
 # TODO consider to put index information in scenarios.ini
 # not used

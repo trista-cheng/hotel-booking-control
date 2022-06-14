@@ -10,10 +10,11 @@ UPGRADE_RULE = 'up'
 ROOT = ''
 REPORT_DIR = 'report'
 SOLVERS = ['gurobi', 'yulindog']
-CAP_REV_LEVLES = [1, ]
-AGENT_CANCEL_LEVELS = [0, ]
+CAP_REV_LEVLES = [0]
+AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
+ADVANCED = True
 
 # multi_index = pd.MultiIndex.from_product([CAP_REV_LEVLES, AGENT_CANCEL_LEVELS,
 #                                           SCENARIOS.sections()])
@@ -34,7 +35,6 @@ for with_capacity_reservation, with_agent_cancel in \
     # FIXME modify here is birdy
     for scenario_name in SCENARIOS.sections():
         scenario = SCENARIOS[scenario_name]
-        output_folder = join(gurobi_dir, scenario_name)
         gurobi_performance = pd.read_csv(
             join(gurobi_dir, scenario_name, 'performance.csv'),
             index_col=0
@@ -52,11 +52,33 @@ for with_capacity_reservation, with_agent_cancel in \
             comparison['gurobi_obj'] *
             1 / (1 - comparison['gurobi_mip_gap'])
         )
-        comparison[['obj_ratio_by_gurobi', 'time_obj_by_gurobi']] = \
+        comparison[['algo_obj_ratio_by_gurobi', 'algo_time_ratio_by_gurobi']] = \
             (algo_performance.iloc[:, :2] / gurobi_performance.iloc[:,:2])
-        comparison['obj_ratio_est'] = (
+        comparison['algo_obj_ratio_by_est'] = (
             algo_performance['obj'] / comparison['est_optimal']
         )
+
+        if ADVANCED:
+            advanced_algo_dir = join(f"solution_{UPGRADE_RULE}", 'algo_1')
+            advanced_algo_dir = join(advanced_algo_dir,
+                                     (f"overbooking_1__"
+                                      f"agent_cancel_{with_agent_cancel}"))
+            advanced_algo = pd.read_csv(
+                join(advanced_algo_dir, scenario_name, 'performance.csv'),
+                index_col=0
+            )
+            comparison = pd.concat(
+                [comparison,
+                advanced_algo.iloc[:, :2].add_prefix('algo_overbooking_')],
+                axis=1
+            )
+            comparison[['algo_overbooking_obj_ratio_by_gurobi',
+                        'algo_overbooking_time_ratio_by_gurobi']] = \
+                (advanced_algo.iloc[:, :2] / gurobi_performance.iloc[:,:2])
+            comparison['algo_overbooking_obj_ratio_by_est'] = (
+                advanced_algo['obj'] / comparison['est_optimal']
+            )
+
         folder = join(REPORT_DIR, UPGRADE_RULE,
                       (f"overbooking_{with_capacity_reservation}__"
                        f"agent_cancel_{with_agent_cancel}"))

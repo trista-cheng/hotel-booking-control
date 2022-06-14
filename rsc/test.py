@@ -16,20 +16,20 @@ SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 # important settings
 REPLICATE_NUM = 5
 MIP_GAP = 0.1
-ROOT = join('history', '0606_too_large')
+# ROOT = join('history', '0606_too_large')
 ROOT = ''
 DATA_ROOT = join(ROOT, 'data')
 UPGRADE_RULE = "up"
 
 # test factor
 SOLVERS = ['gurobi']
-CAP_REV_LEVLES = [1, ]
-AGENT_CANCEL_LEVELS = [1, ]
+CAP_REV_LEVLES = [0, ]
+AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
 
-NUM_TYPE = 2
-TIME_LEN = 6
+NUM_TYPE = 4
+TIME_LEN = 14
 
 for solver in SOLVERS:
     algo_on = 1 if solver == 'yulindog' else 0
@@ -43,7 +43,8 @@ for solver in SOLVERS:
         solution_dir = join(ROOT, solution_dir)
 
         # for each scenario
-        for scenario_name in SCENARIOS.sections()[:2]:
+        # FIXME modify here is birdy
+        for scenario_name in SCENARIOS.sections():
             print(scenario_name)
             scenario = SCENARIOS[scenario_name]
             output_folder = join(solution_dir, scenario_name)
