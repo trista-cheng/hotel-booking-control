@@ -149,7 +149,7 @@ class DataManager:
 
 
 SETTING_ROOT = 'settings'
-REPLICATE_NUM = 10
+REPLICATE_NUM = 30
 # FIXME replicate num may be in meta.ini
 if __name__ == "__main__":
     clean_archive_output(['data'])
@@ -162,4 +162,3 @@ if __name__ == "__main__":
 
     data_manager = DataManager(base, agent_levels, ind_levels)
     data_manager.simulate(replicate_num=REPLICATE_NUM)
-

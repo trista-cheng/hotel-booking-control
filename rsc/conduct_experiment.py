@@ -25,7 +25,7 @@ RELAX = False  # SHOULD ALWAYS be False,
 SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
-REPLICATE_NUM = 5
+REPLICATE_NUM = 15
 MIP_GAP = 0.05
 TIME_LIMIT = 3 * 60 * 60
 # ROOT = join("history", "0609_small")
@@ -34,7 +34,7 @@ DATA_ROOT = join(ROOT, "data")
 UPGRADE_RULE = "up"
 
 # test factor
-SOLVERS = ['yulindog']
+SOLVERS = ['gurobi']
 CAP_REV_LEVLES = [0, ]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
