@@ -14,8 +14,7 @@ RELAX = False  # SHOULD ALWAYS be False,
 SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
-REPLICATE_NUM = 5
-MIP_GAP = 0.1
+REPLICATE_NUM = 30
 # ROOT = join('history', '0606_too_large')
 ROOT = ''
 DATA_ROOT = join(ROOT, 'data')
@@ -24,7 +23,7 @@ UPGRADE_RULE = "up"
 # test factor
 SOLVERS = ['gurobi']
 CAP_REV_LEVLES = [0, ]
-AGENT_CANCEL_LEVELS = [0, 1]
+AGENT_CANCEL_LEVELS = [0, ]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
 

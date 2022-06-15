@@ -25,7 +25,7 @@ RELAX = False  # SHOULD ALWAYS be False,
 SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
-REPLICATE_NUM = 15
+REPLICATE_NUM = 30
 MIP_GAP = 0.05
 TIME_LIMIT = 3 * 60 * 60
 # ROOT = join("history", "0609_small")

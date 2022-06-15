@@ -649,18 +649,19 @@ class Solver:
             capacity_reservation = None
         return order_acceptance, order_upgrade, capacity_reservation
 
-import configparser
-scenarios = configparser.ConfigParser()
-scenarios.read('scenarios.ini')
-for scenario in scenarios.sections()[:1]:
-    solver = Solver(scenarios[scenario], 3, 'up', 0, 0)
-    order_acceptance, order_upgrade, capacity_reservation = \
-        solver.get_decision()
-     # convert to dataframe
-    acceptance_df, upgrade_df, cap_rev_df = solver.get_df(
-        order_acceptance,
-        order_upgrade,
-        capacity_reservation
-    )
-    obj_val = solver.get_obj(order_acceptance, order_upgrade,
-                             capacity_reservation)
+if __name__ == '__main__':
+    import configparser
+    scenarios = configparser.ConfigParser()
+    scenarios.read('scenarios.ini')
+    for scenario in scenarios.sections()[:1]:
+        solver = Solver(scenarios[scenario], 3, 'up', 0, 0)
+        order_acceptance, order_upgrade, capacity_reservation = \
+            solver.get_decision()
+        # convert to dataframe
+        acceptance_df, upgrade_df, cap_rev_df = solver.get_df(
+            order_acceptance,
+            order_upgrade,
+            capacity_reservation
+        )
+        obj_val = solver.get_obj(order_acceptance, order_upgrade,
+                                capacity_reservation)
