@@ -14,21 +14,21 @@ RELAX = False  # SHOULD ALWAYS be False,
 SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
-REPLICATE_NUM = 30
-# ROOT = join('history', '0606_too_large')
+REPLICATE_NUM = range(20, 30)
+# ROOT = join('history', '0615_mid')
 ROOT = ''
 DATA_ROOT = join(ROOT, 'data')
 UPGRADE_RULE = "up"
 
 # test factor
 SOLVERS = ['gurobi']
-CAP_REV_LEVLES = [0, ]
-AGENT_CANCEL_LEVELS = [0, ]
+CAP_REV_LEVLES = [0, 1]
+AGENT_CANCEL_LEVELS = [0, 1, ]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
 
-NUM_TYPE = 4
-TIME_LEN = 14
+NUM_TYPE = 2
+TIME_LEN = 6
 
 for solver in SOLVERS:
     algo_on = 1 if solver == 'yulindog' else 0
@@ -47,7 +47,11 @@ for solver in SOLVERS:
             print(scenario_name)
             scenario = SCENARIOS[scenario_name]
             output_folder = join(solution_dir, scenario_name)
-            for instance_id in range(REPLICATE_NUM):
+            if type(REPLICATE_NUM) == int:
+                replicate_range = range(REPLICATE_NUM)
+            else:
+                replicate_range = REPLICATE_NUM
+            for i, instance_id in enumerate(replicate_range):
                 acceptance_df = pd.read_csv(
                     join(output_folder, f"{instance_id}_acceptance.csv"),
                     index_col=0
@@ -83,5 +87,6 @@ for solver in SOLVERS:
                                          capacity_reservation)
                 gurobi_obj = pd.read_csv(join(output_folder, 'performance.csv'),
                                          index_col=0)
-                g_obj = gurobi_obj.loc[instance_id, 'obj']
-                print(obj_val-g_obj)
+                g_obj = gurobi_obj.loc[i, 'obj']
+                if not np.isclose(obj_val, g_obj):
+                    print(instance_id, obj_val - g_obj)
