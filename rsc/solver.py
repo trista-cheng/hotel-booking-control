@@ -107,7 +107,8 @@ class Solver:
                 (self.num_order, self.num_type)
             )
         )
-        acc_order_msk = np.where(order_acceptance == 1)[0]
+        # FIXME ensure isclose to 1 is correct
+        acc_order_msk = np.where(np.isclose(order_acceptance, 1) == True)[0]
         # order x room
         acc_order_room = self.agent_order_room_quantity + upgrade_diff
         acc_order_room = acc_order_room[acc_order_msk]
@@ -177,6 +178,8 @@ class Solver:
                     self.individual_demand_pmf.shape
                 )
             )
+        # FIXME ensure round is correct
+        reservation = np.round(reservation)
 
         ind_profit = 0
         if self.with_capacity_reservation:
