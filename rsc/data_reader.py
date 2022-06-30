@@ -1,7 +1,6 @@
 import json
 import pandas as pd
 import numpy as np
-import xarray as xr
 from os.path import join
 
 DATA_ROOT = join("data")
