@@ -25,7 +25,7 @@ RELAX = False  # SHOULD ALWAYS be False,
 SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
-REPLICATE_NUM = 30
+REPLICATE_NUM = range(14, 15)
 MIP_GAP = 0.05
 TIME_LIMIT = 3 * 60 * 60
 # ROOT = join("history", "0609_small")
@@ -35,7 +35,7 @@ UPGRADE_RULE = "up"
 
 # test factor
 SOLVERS = ['gurobi']
-CAP_REV_LEVLES = [0, ]
+CAP_REV_LEVLES = [0, 1]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
@@ -100,7 +100,11 @@ class Conductor:
                     ubs = []
                     mip_gaps= []
 
-                    for instance_id in range(self.replicate_num):
+                    if type(self.replicate_num) == int:
+                        replicate_range = range(self.replicate_num)
+                    else:
+                        replicate_range = self.replicate_num
+                    for instance_id in replicate_range:
                         experiment = Experiment(
                             solver=solver,
                             with_capacity_reservation=with_capacity_reservation,
