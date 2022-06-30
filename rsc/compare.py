@@ -14,7 +14,7 @@ CAP_REV_LEVLES = [0, 1]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
-ADVANCED = True
+ADVANCED = False
 
 # multi_index = pd.MultiIndex.from_product([CAP_REV_LEVLES, AGENT_CANCEL_LEVELS,
 #                                           SCENARIOS.sections()])
@@ -50,7 +50,7 @@ for with_capacity_reservation, with_agent_cancel in \
         )
         comparison['est_optimal'] = (
             comparison['gurobi_obj'] *
-            1 / (1 - comparison['gurobi_mip_gap'])
+            (1 + comparison['gurobi_mip_gap'])
         )
         comparison[['algo_obj_ratio_by_gurobi', 'algo_time_ratio_by_gurobi']] = \
             (algo_performance.iloc[:, :2] / gurobi_performance.iloc[:,:2])
