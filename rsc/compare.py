@@ -10,7 +10,7 @@ UPGRADE_RULE = 'up'
 ROOT = ''
 REPORT_DIR = 'report'
 SOLVERS = ['gurobi', 'yulindog']
-CAP_REV_LEVLES = [0]
+CAP_REV_LEVLES = [0, 1]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
