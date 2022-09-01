@@ -107,8 +107,7 @@ class Solver:
                 (self.num_order, self.num_type)
             )
         )
-        # FIXME ensure isclose to 1 is correct
-        acc_order_msk = np.where(np.isclose(order_acceptance, 1) == True)[0]
+        acc_order_msk = np.where(order_acceptance == 1)[0]
         # order x room
         acc_order_room = self.agent_order_room_quantity + upgrade_diff
         acc_order_room = acc_order_room[acc_order_msk]
@@ -130,30 +129,6 @@ class Solver:
                 print(agent_det_agg_consump)
                 print(self.capacity)
                 raise Exception('Agent consumption exceeds capacity')
-
-        if (order_upgrade < 0).any():
-            invalid_msk = np.where(order_upgrade < 0)
-            if not np.allclose(order_upgrade[invalid_msk], 0):
-                print(order_upgrade[invalid_msk])
-                raise Exception("Negative upgrades")
-        if (order_upgrade.sum(axis=(1, 2))[np.where(order_acceptance != 1)] >
-            0).any():
-            raise Exception("Upgrade rejected orders")
-        if (order_upgrade.sum(axis=2) > self.agent_order_room_quantity).any():
-            invalid_msk = np.where(
-                order_upgrade.sum(axis=2) > self.agent_order_room_quantity
-            )
-            if np.allclose(order_upgrade[invalid_msk].sum(axis=1),
-                           self.agent_order_room_quantity[invalid_msk]):
-                pass
-            else:
-                print(invalid_msk)
-                print(self.with_agent_cancel, self.scenario)
-                print(self.agent_order_room_quantity[invalid_msk])
-                print(order_upgrade[invalid_msk].sum(axis=1))
-
-                raise Exception('Upgrads exceed requirements')
-
 
         if self.with_agent_cancel:
             # order x room x time
@@ -202,8 +177,6 @@ class Solver:
                     self.individual_demand_pmf.shape
                 )
             )
-        # FIXME ensure round is correct
-        reservation = np.round(reservation)
 
         ind_profit = 0
         if self.with_capacity_reservation:
@@ -379,29 +352,6 @@ class Solver:
 
         return order_acceptance, order_upgrade, capacity_reservation
 
-    def _get_compensation(self, prior_vac, post_vac):
-        """get the positive value of compensation price
-
-        Args:
-            prior_vac
-            post_vac
-        """
-
-        # FIXME check the increase in vaccancy i valid
-        # if (post_vac > prior_vac).any():
-        #     print(prior_vac)
-        #     print()
-        #     print(post_vac)
-        #     raise Exception("Vaccancy increases")
-
-        prior = prior_vac.copy()
-        post = post_vac.copy()
-
-        prior[prior > 0] = 0
-        post[post > 0] = 0
-
-        return - ((post - prior) * self.compensation_price).sum()
-
     # TODO may propose by rank and by grid and compare instead of a mix
     def _get_decision(self, order_level, order_acceptance, depre_rate):
         order_rank, value_ratio = self._get_order_rank()
@@ -458,6 +408,7 @@ class Solver:
         # left_vac[left_vac < 0] = 0  # underestimate shortage
         # however, since the compensation is linear, the underestimation may
         # not harm too much
+        agent_profit = sorted_price[:num_acc].sum()
         order_upgrade = np.zeros(
             (self.num_order, self.num_type, self.num_type)
         )
@@ -465,7 +416,8 @@ class Solver:
         rest_sorted_req = sorted_req[num_acc:, :, :]
         rest_order_rank = order_rank[num_acc:]
         rest_sorted_price = sorted_price[num_acc:]
-        avail_ub = self.capacity - acc_req
+        acc_compensation = left_vac.copy()
+        acc_compensation[acc_compensation > 0] = 0
 
         # extend the acceptance level by upgrade
         # and backward by reject first-phase orders
@@ -490,171 +442,137 @@ class Solver:
                 break
 
             # possible to improve by adding orders
-            candidate_orders = np.where(
+            candidates = np.where(
                 rest_sorted_req[:, :, max_vac_time].sum(axis=1) > 0
             )[0]  # one dimension
 
             prev_fail = True  # if no candidate orders for target time
-            for candidate_order_pos in candidate_orders:  # iterate orders
+            for candidate_pos in candidates:
 
-                target_order = rest_order_rank[candidate_order_pos]
+                target_order = rest_order_rank[candidate_pos]
                 target_defactor = cal_order_defactor[target_order]
                 valid_to_add = True
                 # consider to add this order
-                target_original_req = rest_sorted_req[candidate_order_pos]
-                tmp_vac_in_order = left_vac - target_original_req
-                p_diff_in_order = (
-                    rest_sorted_price[candidate_order_pos] -
-                    self._get_compensation(left_vac, tmp_vac_in_order)
-                )
-                target_order_upgrade = np.zeros((self.num_type, self.num_type))
-                target_order_stay = self.agent_order_stay[target_order]
-                tmp_avail_ub = avail_ub - target_original_req
+                target_original_req = rest_sorted_req[candidate_pos]
+                tmp_left_vac = left_vac - target_original_req
+                tmp_acc_req = acc_req + target_original_req
+                tmp_agent_profit = (agent_profit +
+                                    rest_sorted_price[candidate_pos])
+                target_order_upgrade = np.zeros((self.num_type, self.num_type,
+                                                 self.time_span_len))
 
                 # exceed_capacity = True
                 # consider upgrading only extract those negativity caused by
                 # this target order
-                invalid_row, invalid_col = np.where((tmp_vac_in_order < 0) &
+                invalid_row, invalid_col = np.where((tmp_left_vac < 0) &
                                                     (target_original_req > 0))
-                # Since we only determine the number of rooms to upgrade
-                # without adjusting for each period.
-                candidate_types = np.unique(invalid_row)
-                candidate_types.sort()
-                if self.upgrade_rule == 'down':
-                    candidate_types = candidate_types[::-1]
-                for room_type in candidate_types:
-                    pos_vac = tmp_vac_in_order.copy()
-                    pos_vac[pos_vac < 0] = 0
+                for room_pos, time_pos in zip(invalid_row, invalid_col):
 
-                    # get the UB, LB, and the possible values of upgrade amount
-                    if self.upgrade_rule == 'up':
-                        to_types = np.arange(room_type + 1, self.num_type)
-                    elif self.upgrade_rule == 'down':
-                        to_types = np.arange(room_type)[::-1]
-                    elif self.upgrade_rule == 'both':
-                        # prefer upgrade than downgrade
-                        to_types = np.concatenate([
-                            np.arange(room_type + 1, self.num_type),
-                            np.arange(room_type)[::-1]
-                        ], axis=0)
-                    else:
-                        raise Exception(f'No {self.upgrade_rule} upgrade rule')
+                    grid_tune_done = False
+                    if self.upgrade_rule in ['up', 'both']:
 
-                    acc_out_amount = 0
-                    for to_type in to_types:
-
-                        # if no shortage in target type, stop upgrading
-                        if (tmp_vac_in_order[room_type, :] >= 0).all():
-                            break
-
-                        # not to upgrade aggresively
-                        shortage_time = np.intersect1d(
-                            np.where(target_order_stay == 1),
-                            np.where(tmp_vac_in_order[room_type, :] < 0)
-                        )
-                        candidate_amounts = np.min(
-                            [- tmp_vac_in_order[room_type, shortage_time],
-                             pos_vac[to_type, shortage_time]],
-                            axis=0
-                        )
-                        candidate_amounts = np.concatenate(
-                            [
-                                candidate_amounts,
-                                pos_vac[
-                                    to_type,
-                                    np.where(target_order_stay == 1)
-                                ].flatten()
-                            ]
-                        )
-                        candidate_amounts = np.unique(candidate_amounts)
-                        candidate_amounts = candidate_amounts[np.where(
-                            candidate_amounts * target_defactor <=
-                            self.agent_order_room_quantity[target_order,
-                                                           room_type] -
-                            acc_out_amount
-                        )]  # prohibit upgrade over request
-                        if not self.with_capacity_reservation:
-                            # ensure upgrading will not use up resources of
-                            # other types and choose possible value to improve
-                            candidate_amounts = candidate_amounts[np.where(
-                                candidate_amounts <
-                                tmp_avail_ub[
-                                    to_type,
-                                    np.where(target_order_stay == 1)
-                                ].min()
-                            )]
-
-                        # there is no possibility that left vaccacncy decrease
-                        best_amount = 0
-                        max_earning_by_amount = 0
-                        best_vac_in_amount = None
-
-                        # choose the best upgrade amount
-                        for amount in candidate_amounts:
-                            tmp_vac_in_amount = tmp_vac_in_order.copy()
-                            tmp_vac_in_amount[room_type,
-                                              target_order_stay.astype(bool)] \
-                                                  += amount
-                            tmp_vac_in_amount[to_type,
-                                              target_order_stay.astype(bool)] \
-                                                  -= amount
-                            diff = (
-                                self.upgrade_fee[room_type, to_type] *
-                                amount *
-                                target_order_stay.sum() -
-                                self._get_compensation(tmp_vac_in_order,
-                                                       tmp_vac_in_amount)
+                        # consider to upgrade this order first
+                        for to_type in range(room_pos + 1, self.num_type):
+                            if tmp_left_vac[to_type, time_pos] < 0:
+                                continue  # already negative
+                            up_amount = np.min([
+                                - tmp_left_vac[room_pos, time_pos],
+                                tmp_left_vac[to_type, time_pos]
+                            ])
+                            tmp_acc_req[room_pos, time_pos] -= up_amount
+                            tmp_acc_req[to_type, time_pos] += up_amount
+                            tmp_left_vac[to_type, time_pos] -= up_amount
+                            tmp_left_vac[room_pos, time_pos] += up_amount
+                            target_order_upgrade[
+                                room_pos, to_type, time_pos
+                            ] += up_amount * target_defactor
+                            tmp_agent_profit += (
+                                self.upgrade_fee[room_pos, to_type] *
+                                up_amount
                             )
-                            if diff > max_earning_by_amount:
-                                best_amount = amount
-                                max_earning_by_amount = diff
-                                best_vac_in_amount = tmp_vac_in_amount
 
-                        if best_amount > 0:
-                            # change status within this order
-                            tmp_vac_in_order = best_vac_in_amount
-                            p_diff_in_order += max_earning_by_amount
-                            tmp_avail_ub[room_type,
-                                         target_order_stay.astype(bool)] += \
-                                best_amount
-                            tmp_avail_ub[to_type,
-                                         target_order_stay.astype(bool)] -= \
-                                best_amount
-                            target_order_upgrade[room_type, to_type] += \
-                                best_amount * target_defactor
-                            acc_out_amount += best_amount * target_defactor
+                            if tmp_left_vac[room_pos, time_pos] >= 0:
+                                grid_tune_done = True
+                                break
 
-                    # already try upgrade to every possible type from given type
+                        # to need to consider upgrading other orders
+                        # since the vacancies of up levels are squeezed out
+                        # but maybe rejecting some orders may help
+
+                        # if upgrade to upper levels cover all shortage
+                        if grid_tune_done:
+                            continue
+
+                    if self.upgrade_rule in ['down', 'both']:
+
+                        # consider to downgrade this order
+                        for to_type in np.arange(room_pos)[::-1]:
+                            if tmp_left_vac[to_type, time_pos] < 0:
+                                continue  # already negative
+                            down_amount = np.min([
+                                - tmp_left_vac[room_pos, time_pos],
+                                tmp_left_vac[to_type, time_pos]
+                            ])
+                            tmp_acc_req[room_pos, time_pos] -= down_amount
+                            tmp_acc_req[to_type, time_pos] += down_amount
+                            tmp_left_vac[to_type, time_pos] -= down_amount
+                            tmp_left_vac[room_pos, time_pos] += down_amount
+                            target_order_upgrade[
+                                room_pos, to_type, time_pos
+                            ] += down_amount * target_defactor
+                            tmp_agent_profit += (
+                                self.upgrade_fee[room_pos, to_type] *
+                                down_amount
+                            )
+
+                            if tmp_left_vac[room_pos, time_pos] >= 0:
+                                grid_tune_done = True
+                                break
+
+                        # no need to consider downgrading other orders
+
                     # ensure not exceeed capacity
-                    if ((not self.with_capacity_reservation)):
-                        if (tmp_avail_ub < 0).any():
+                    if ((not grid_tune_done) &
+                        (not self.with_capacity_reservation)):
+                        if (tmp_acc_req[room_pos, time_pos] >
+                            self.capacity[room_pos, time_pos]):
                             valid_to_add = False
-                            break
-                            # stop trying for next negative grid
+                            break  # stop trying for next negative grid
 
                 if not valid_to_add:
                     prev_fail = True
                     continue  # try next order
 
-                # available to add this order
-                # already take compensation into account
-                if p_diff_in_order < 0:
+                # succeed to add this order
+                # count in the compensation
+                tmp_compensation = tmp_left_vac.copy()
+                tmp_compensation[tmp_compensation > 0] = 0
+                comp_room_amount = tmp_compensation - acc_compensation
+                # `comp_room_amount` is negative
+                tmp_agent_profit += (
+                    comp_room_amount * self.compensation_price
+                ).sum()
+
+                if tmp_agent_profit < agent_profit:
                     prev_fail = True
                     continue  # consider another order
 
                 prev_fail = False
-                left_vac = tmp_vac_in_order
-                order_upgrade[target_order] = target_order_upgrade
+                left_vac = tmp_left_vac
+                acc_req = tmp_acc_req
+                agent_profit = tmp_agent_profit
+                acc_compensation = tmp_compensation
+                # transfer flexible order upgrade into consistent along time
+                order_upgrade[target_order] = (
+                    target_order_upgrade.sum(axis=2) /
+                    self.agent_order_stay[target_order].sum()
+                )
                 order_acceptance[target_order] = 1
-                avail_ub = tmp_avail_ub
-                rest_order_rank = np.delete(rest_order_rank,
-                                            candidate_order_pos,
+                rest_order_rank = np.delete(rest_order_rank, candidate_pos,
                                             axis=0)
-                rest_sorted_price = np.delete(rest_sorted_price,
-                                              candidate_order_pos,
+                rest_sorted_price = np.delete(rest_sorted_price, candidate_pos,
                                               axis=0)
-                rest_sorted_req = np.delete(rest_sorted_req,
-                                            candidate_order_pos,
+                rest_sorted_req = np.delete(rest_sorted_req, candidate_pos,
                                             axis=0)
                 prioty = 0
                 # choose next time to tune again
@@ -681,9 +599,8 @@ class Solver:
         if self.with_capacity_reservation:
             ind_ub = get_ind_exp_req(self.scenario, self.time_span_len,
                                     self.with_ind_cancel)
-            left_vac[left_vac > 0] = 0
             capacity_reservation = (
-                (ind_ub + left_vac) *
+                (ind_ub + acc_compensation) *
                 (1 / (1 - self.individual_cancel_rate)).reshape((-1, 1))
             )
             capacity_reservation[capacity_reservation < 0] = 0
@@ -691,19 +608,18 @@ class Solver:
             capacity_reservation = None
         return order_acceptance, order_upgrade, capacity_reservation
 
-if __name__ == '__main__':
-    import configparser
-    scenarios = configparser.ConfigParser()
-    scenarios.read('scenarios.ini')
-    for scenario in scenarios.sections()[:1]:
-        solver = Solver(scenarios[scenario], 3, 'up', 0, 0)
-        order_acceptance, order_upgrade, capacity_reservation = \
-            solver.get_decision()
-        # convert to dataframe
-        acceptance_df, upgrade_df, cap_rev_df = solver.get_df(
-            order_acceptance,
-            order_upgrade,
-            capacity_reservation
-        )
-        obj_val = solver.get_obj(order_acceptance, order_upgrade,
-                                capacity_reservation)
+import configparser
+scenarios = configparser.ConfigParser()
+scenarios.read('scenarios.ini')
+for scenario in scenarios.sections()[:1]:
+    solver = Solver(scenarios[scenario], 3, 'up', 0, 0)
+    order_acceptance, order_upgrade, capacity_reservation = \
+        solver.get_decision()
+     # convert to dataframe
+    acceptance_df, upgrade_df, cap_rev_df = solver.get_df(
+        order_acceptance,
+        order_upgrade,
+        capacity_reservation
+    )
+    obj_val = solver.get_obj(order_acceptance, order_upgrade,
+                             capacity_reservation)

@@ -10,6 +10,7 @@ from time import perf_counter
 from itertools import product
 
 from gurobi_optimizer_mix import GurobiManager
+from gurobi_loose_bound import GurobiBoundary
 from solver import Solver
 from tools import get_exp_ub
 
@@ -25,17 +26,18 @@ RELAX = False  # SHOULD ALWAYS be False,
 SET_ORDER_ACC = False  # only use either gurobi or solver not partial
 
 # important settings
-REPLICATE_NUM = range(14, 15)
+REPLICATE_NUM = 30
 MIP_GAP = 0.05
 TIME_LIMIT = 3 * 60 * 60
 # ROOT = join("history", "0609_small")
 ROOT = ''
 DATA_ROOT = join(ROOT, "data")
 UPGRADE_RULE = "up"
+FIND_UB = True
 
 # test factor
 SOLVERS = ['gurobi']
-CAP_REV_LEVLES = [0, 1]
+CAP_REV_LEVLES = [1]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
@@ -51,7 +53,8 @@ def get_index(scenario):
 class Conductor:
     def __init__(self, solvers: list, cap_rev_levels: list,
                  agent_cancel_levels: list, scenarios: configparser,
-                 replicate_num: int, upgrade_rule: str, data_root: str):
+                 replicate_num: int, upgrade_rule: str, data_root: str,
+                 find_ub=FIND_UB):
         """Conduct full trials with given environments by solvers
 
         Args:
@@ -62,6 +65,7 @@ class Conductor:
             replicate_num (int)
             upgrade_rule (str): options are `up`, `down` and `both`.
             data_root (str): set by params.
+            find_ub (bool)
         """
         self.cap_rev_levels = cap_rev_levels
         self.agent_cancel_levels = agent_cancel_levels
@@ -70,6 +74,7 @@ class Conductor:
         self.replicate_num = replicate_num
         self.upgrade_rule = upgrade_rule
         self.data_root = data_root
+        self.find_ub = find_ub
 
     def save_scenario_metric(self, output_folder, objs, cal_times, mip_gaps,
                              ubs):
@@ -114,6 +119,7 @@ class Conductor:
                             output_folder=output_folder,
                             upgrade_rule=self.upgrade_rule,
                             data_root=self.data_root,
+                            find_ub=self.find_ub,
                         )
                         obj, cal_time, mip_gap, ub = experiment.carry_out_trial()
                         objs.append(obj)
@@ -129,7 +135,8 @@ class Conductor:
 class Experiment:
     def __init__(self, solver: str, with_capacity_reservation: bool,
                  with_agent_cancel: bool, scenario: dict, instance_id: int,
-                 output_folder: str, upgrade_rule: str, data_root: str) -> None:
+                 output_folder: str, upgrade_rule: str, data_root: str,
+                 find_ub: bool) -> None:
         """Do one trial and return metrics
 
         Args:
@@ -141,6 +148,7 @@ class Experiment:
             output_folder (str)
             upgrade_rule
             data_root
+            find_ub
         """
         self.solver = solver
         self.with_capacity_reservation = with_capacity_reservation
@@ -150,6 +158,7 @@ class Experiment:
         self.upgrade_rule = upgrade_rule
         self.data_root = data_root
         self.output_folder = output_folder
+        self.find_ub = find_ub
 
     def save_instance_sol(self, acceptance_df, upgrade_df, cap_rev_df,
                           obj_val, cal_time, mip_gap):
@@ -174,19 +183,34 @@ class Experiment:
 
     def carry_out_trial(self):
         if self.solver == 'gurobi':
-            start_time = perf_counter()
-            optimizer = GurobiManager(
-                self.scenario,
-                self.instance_id,
-                self.upgrade_rule,
-                with_capacity_reservation=self.with_capacity_reservation,
-                with_ind_cancel=WITH_IND_CANCEL,
-                with_agent_cancel=self.with_agent_cancel,
-                set_order_acc=SET_ORDER_ACC
-            )
-            optimizer.build_model()
-            optimizer.solve(time_limit=TIME_LIMIT, mip_gap=MIP_GAP)
-            cal_time = perf_counter() - start_time
+            if self.find_ub == False:
+                start_time = perf_counter()
+                optimizer = GurobiManager(
+                    self.scenario,
+                    self.instance_id,
+                    self.upgrade_rule,
+                    with_capacity_reservation=self.with_capacity_reservation,
+                    with_ind_cancel=WITH_IND_CANCEL,
+                    with_agent_cancel=self.with_agent_cancel,
+                    set_order_acc=SET_ORDER_ACC
+                )
+                optimizer.build_model()
+                optimizer.solve(time_limit=TIME_LIMIT, mip_gap=MIP_GAP)
+                cal_time = perf_counter() - start_time
+            else:
+                start_time = perf_counter()
+                optimizer = GurobiBoundary(
+                    self.scenario,
+                    self.instance_id,
+                    self.upgrade_rule,
+                    with_capacity_reservation=self.with_capacity_reservation,
+                    with_ind_cancel=WITH_IND_CANCEL,
+                    with_agent_cancel=self.with_agent_cancel,
+                    set_order_acc=SET_ORDER_ACC
+                )
+                optimizer.build_model()
+                optimizer.solve(time_limit=TIME_LIMIT, mip_gap=MIP_GAP)
+                cal_time = perf_counter() - start_time
             (acceptance_df, upgrade_df, cap_rev_df, obj_val, mip_gap,
              ind_valid_df, comp_df, rev_df) = optimizer.get_result()
             # save some extra data for verification

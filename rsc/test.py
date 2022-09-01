@@ -21,7 +21,7 @@ DATA_ROOT = join(ROOT, 'data')
 UPGRADE_RULE = "up"
 
 # test factor
-SOLVERS = ['gurobi']
+SOLVERS = ['yulindog']
 CAP_REV_LEVLES = [0, 1]
 AGENT_CANCEL_LEVELS = [0, 1, ]
 SCENARIOS = configparser.ConfigParser()
@@ -60,18 +60,20 @@ for solver in SOLVERS:
                     join(output_folder, f"{instance_id}_upgrade.csv"),
                     index_col=[0, 1, 2]
                 )
+                cap_skip_rows = (1, 2) if solver =='gurobi' else None
                 cap_rev_df = pd.read_csv(
                     join(output_folder, f"{instance_id}_cap_rev.csv"),
                     index_col=0,
-                    skiprows=(1, 2)
+                    skiprows=cap_skip_rows
                 )
                 order_acceptance = acceptance_df.to_numpy().flatten()
                 order_upgrade = np.zeros(
                     (len(order_acceptance), NUM_TYPE, NUM_TYPE,)
                 )
+                col_name = 'upgrade amount' if solver == 'gurobi' else '0'
                 for index, value in upgrade_df.iterrows():
                     order_upgrade[index[0] - 1, index[1] - 1, index[2] - 1] =  \
-                        value['upgrade amount']
+                        value[col_name]
                 capacity_reservation = cap_rev_df.to_numpy()
 
                 solver = Solver(
@@ -83,6 +85,8 @@ for solver in SOLVERS:
                     with_ind_cancel=WITH_IND_CANCEL,
                     data_root=DATA_ROOT
                 )
+                if (capacity_reservation.shape[0] == 0) & with_capacity_reservation:
+                    print(instance_id, scenario_name)
                 obj_val = solver.get_obj(order_acceptance, order_upgrade,
                                          capacity_reservation)
                 gurobi_obj = pd.read_csv(join(output_folder, 'performance.csv'),

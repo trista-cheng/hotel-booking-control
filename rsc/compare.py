@@ -7,10 +7,12 @@ from pathlib import Path
 
 UPGRADE_RULE = 'up'
 
-ROOT = ''
-REPORT_DIR = 'report'
+# ROOT = join('history', '0701_small')
+ROOT = ""
+REPORT_DIR = join(ROOT, 'report')
+Path(REPORT_DIR).mkdir(exist_ok=True, parents=True)
 SOLVERS = ['gurobi', 'yulindog']
-CAP_REV_LEVLES = [0, 1]
+CAP_REV_LEVLES = [1]
 AGENT_CANCEL_LEVELS = [0, 1]
 SCENARIOS = configparser.ConfigParser()
 SCENARIOS.read(join(ROOT, 'scenarios.ini'))
@@ -23,7 +25,7 @@ summary = pd.DataFrame()
 for with_capacity_reservation, with_agent_cancel in \
     product(CAP_REV_LEVLES, AGENT_CANCEL_LEVELS):
     gurobi_dir = join(ROOT, f"solution_{UPGRADE_RULE}", 'algo_0')
-    algo_dir = join(f"solution_{UPGRADE_RULE}", 'algo_1')
+    algo_dir = join(ROOT, f"solution_{UPGRADE_RULE}", 'algo_1')
 
     gurobi_dir = join(gurobi_dir, (f"overbooking_{with_capacity_reservation}__"
                       f"agent_cancel_{with_agent_cancel}"))
@@ -31,8 +33,6 @@ for with_capacity_reservation, with_agent_cancel in \
                     f"agent_cancel_{with_agent_cancel}"))
 
     # for each scenario
-    # for each scenario
-    # FIXME modify here is birdy
     for scenario_name in SCENARIOS.sections():
         scenario = SCENARIOS[scenario_name]
         gurobi_performance = pd.read_csv(
@@ -44,7 +44,7 @@ for with_capacity_reservation, with_agent_cancel in \
             index_col=0
         )
         comparison = pd.concat(
-            [gurobi_performance.add_prefix('gurobi_'),
+            [gurobi_performance.iloc[:, :3].add_prefix('gurobi_'),
              algo_performance.iloc[:, :2].add_prefix('algo_')],
             axis=1
         )
@@ -57,6 +57,7 @@ for with_capacity_reservation, with_agent_cancel in \
         comparison['algo_obj_ratio_by_est'] = (
             algo_performance['obj'] / comparison['est_optimal']
         )
+        comparison['gap'] = 1 - comparison['algo_obj_ratio_by_est']
 
         if ADVANCED:
             advanced_algo_dir = join(f"solution_{UPGRADE_RULE}", 'algo_1')
@@ -78,6 +79,7 @@ for with_capacity_reservation, with_agent_cancel in \
             comparison['algo_overbooking_obj_ratio_by_est'] = (
                 advanced_algo['obj'] / comparison['est_optimal']
             )
+            comparison['cheat_gap'] = 1 - comparison['algo_overbooking_obj_ratio_by_est']
 
         folder = join(REPORT_DIR, UPGRADE_RULE,
                       (f"overbooking_{with_capacity_reservation}__"
@@ -85,6 +87,7 @@ for with_capacity_reservation, with_agent_cancel in \
         Path(folder).mkdir(exist_ok=True, parents=True)
         comparison.to_csv(join(folder, f"{scenario_name}.csv"), index=False)
         result = comparison.mean().to_frame().T
+        std_result = comparison.std().to_frame().T
         result[['overbooking', 'agent_cancel']] = [with_capacity_reservation,
                                                    with_agent_cancel]
         result[['stay_mul', 'top_room_rate', 'ind_demand_mul']] = [
